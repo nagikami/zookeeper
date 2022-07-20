@@ -54,22 +54,23 @@ import org.slf4j.LoggerFactory;
  * by new lines. The following is a general summary of keys used in the
  * configuration file. For full details on this see the documentation in
  * docs/index.html
+ * main方法作为程序入口，第一个参数为配合文件路径
  * <ol>
- * <li>dataDir - The directory where the ZooKeeper data is stored.</li>
- * <li>dataLogDir - The directory where the ZooKeeper transaction log is stored.</li>
- * <li>clientPort - The port used to communicate with clients.</li>
- * <li>tickTime - The duration of a tick in milliseconds. This is the basic
+ * <li>dataDir 数据存储目录- The directory where the ZooKeeper data is stored.</li>
+ * <li>dataLogDir 事务日志存储目录- The directory where the ZooKeeper transaction log is stored.</li>
+ * <li>clientPort 客户端通信监听端口- The port used to communicate with clients.</li>
+ * <li>tickTime 基本时间单位- The duration of a tick（滴答） in milliseconds. This is the basic
  * unit of time in ZooKeeper.</li>
- * <li>initLimit - The maximum number of ticks that a follower will wait to
- * initially synchronize with a leader.</li>
- * <li>syncLimit - The maximum number of ticks that a follower will wait for a
- * message (including heartbeats) from the leader.</li>
- * <li>server.<i>id</i> - This is the host:port[:port] that the server with the
- * given id will use for the quorum protocol.</li>
+ * <li>initLimit follower最大初始化同步等待时间- The maximum number of ticks that a follower
+ * will wait to initially synchronize with a leader.</li>
+ * <li>syncLimit follower最大消息等待时间- The maximum number of ticks that a follower will
+ * wait for a message (including heartbeats) from the leader.</li>
+ * <li>server.<i>id</i> 服务器id，用于仲裁协议- This is the host:port[:port] that the server
+ * with the given id will use for the quorum protocol.</li>
  * </ol>
  * In addition to the config file. There is a file in the data directory called
  * "myid" that contains the server id as an ASCII decimal value.
- *
+ * 数据存储路径包含保存服务器id的myid文件
  */
 @InterfaceAudience.Public
 public class QuorumPeerMain {
@@ -83,6 +84,7 @@ public class QuorumPeerMain {
     /**
      * To start the replicated server specify the configuration file name on
      * the command line.
+     * 使用指定配置文件启动复制服务器
      * @param args path to the configfile
      */
     public static void main(String[] args) {
@@ -122,10 +124,15 @@ public class QuorumPeerMain {
     protected void initializeAndRun(String[] args) throws ConfigException, IOException, AdminServerException {
         QuorumPeerConfig config = new QuorumPeerConfig();
         if (args.length == 1) {
+            // 解析配置
             config.parse(args[0]);
         }
 
-        // Start and schedule the the purge task
+        /**
+         * Start and schedule the purge task
+         * 启动清理线程
+         * 用于定时清理写操作产生的事务日志和内存数据达到一定大小或者达到一定时间间隔后持久化到磁盘的snapshot
+         */
         DatadirCleanupManager purgeMgr = new DatadirCleanupManager(
             config.getDataDir(),
             config.getDataLogDir(),
