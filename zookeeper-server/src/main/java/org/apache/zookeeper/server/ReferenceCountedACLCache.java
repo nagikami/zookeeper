@@ -100,29 +100,38 @@ public class ReferenceCountedACLCache {
     }
 
     public void deserialize(InputArchive ia) throws IOException {
+        // 清除ACL数据
         clear();
+        // 读取ACL列表索引和ACL列表映射表长度
         int i = ia.readInt("map");
 
         LinkedHashMap<Long, List<ACL>> deserializedMap = new LinkedHashMap<>();
         // keep read operations out of synchronization block
+        // 保证读操作在同步块之外
         while (i > 0) {
+            // 读取ACL列表索引
             Long val = ia.readLong("long");
             List<ACL> aclList = new ArrayList<ACL>();
+            // 读取ACl列表长度（int）
             Index j = ia.startVector("acls");
             if (j == null) {
                 throw new RuntimeException("Incorrent format of InputArchive when deserialize DataTree - missing acls");
             }
+            // 读取ACL列表
             while (!j.done()) {
                 ACL acl = new ACL();
+                // 读取ACL
                 acl.deserialize(ia, "acl");
                 aclList.add(acl);
                 j.incr();
             }
 
+            // 加载ACL列表索引和ACL列表映射表
             deserializedMap.put(val, aclList);
             i--;
         }
 
+        // 更新ACL列表索引
         synchronized (this) {
             for (Map.Entry<Long, List<ACL>> entry : deserializedMap.entrySet()) {
                 Long val = entry.getKey();
@@ -131,8 +140,11 @@ public class ReferenceCountedACLCache {
                     aclIndex = val;
                 }
 
+                // 加载ACL列表索引和ACL列表映射表
                 longKeyMap.put(val, aclList);
+                // 加载ACL列表和ACL列表索引映射表
                 aclKeyMap.put(aclList, val);
+                // 加载ACL列表索引和引用次数映射表
                 referenceCounter.put(val, new AtomicLongWithEquals(0));
             }
         }

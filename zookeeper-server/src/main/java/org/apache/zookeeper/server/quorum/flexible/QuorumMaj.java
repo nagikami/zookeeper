@@ -89,17 +89,22 @@ public class QuorumMaj implements QuorumVerifier {
             if (key.startsWith("server.")) {
                 int dot = key.indexOf('.');
                 long sid = Long.parseLong(key.substring(dot + 1));
+                // 创建节点
                 QuorumServer qs = new QuorumServer(sid, value);
+                // 保存所有节点
                 allMembers.put(Long.valueOf(sid), qs);
                 if (qs.type == LearnerType.PARTICIPANT) {
+                    // 添加参与者角色
                     votingMembers.put(Long.valueOf(sid), qs);
                 } else {
+                    // 添加观察者角色
                     observingMembers.put(Long.valueOf(sid), qs);
                 }
             } else if (key.equals("version")) {
                 version = Long.parseLong(value, 16);
             }
         }
+        // 计算一半票数值
         half = votingMembers.size() / 2;
     }
 

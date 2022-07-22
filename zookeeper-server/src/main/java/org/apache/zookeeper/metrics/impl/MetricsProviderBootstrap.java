@@ -36,6 +36,7 @@ public abstract class MetricsProviderBootstrap {
         String metricsProviderClassName,
         Properties configuration) throws MetricsProviderLifeCycleException {
         try {
+            // 反射，指定应用类加载器加载指标服务实现
             Class<?> clazz = Class.forName(
                 metricsProviderClassName,
                 true,

@@ -41,9 +41,11 @@ public final class VerifyingFileFactory {
 
     public File validate(File file) {
         if (warnForRelativePath) {
+            // 对非./标识的相对路径，进行告警
             doWarnForRelativePath(file);
         }
         if (failForNonExistingPath) {
+            // 文件不存在抛异常
             doFailForNonExistingPath(file);
         }
         return file;
@@ -56,12 +58,15 @@ public final class VerifyingFileFactory {
     }
 
     private void doWarnForRelativePath(File file) {
+        // 绝对路径
         if (file.isAbsolute()) {
             return;
         }
+        // 使用./标识的相对路径
         if (file.getPath().substring(0, 2).equals("." + File.separator)) {
             return;
         }
+        // 其他路径，warn报注意是相对路径
         log.warn(file.getPath() + " is relative. Prepend ." + File.separator + " to indicate that you're sure!");
     }
 

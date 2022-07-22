@@ -99,10 +99,13 @@ public class ZKAuditProvider {
 
     /**
      * Add audit log for server start and register server stop log.
+     * 为server启动添加审计日志并注册server停止日志
      */
     public static void addZKStartStopAuditLog() {
         if (isAuditEnabled()) {
+            // 记录启动审计日志
             log(getZKUser(), AuditConstants.OP_START, Result.SUCCESS);
+            // 注册JVM停止的处理逻辑钩子（在停止时并发执行）
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 log(getZKUser(), AuditConstants.OP_STOP, Result.INVOKED);
             }));

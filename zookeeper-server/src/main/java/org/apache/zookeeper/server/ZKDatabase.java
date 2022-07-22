@@ -278,6 +278,7 @@ public class ZKDatabase {
     /**
      * load the database from the disk onto memory and also add
      * the transactions to the committedlog in memory.
+     * 从硬盘加载snapshot和事务日志到内存
      * @return the last valid zxid on disk
      * @throws IOException
      */

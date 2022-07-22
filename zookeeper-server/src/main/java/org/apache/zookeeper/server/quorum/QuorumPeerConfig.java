@@ -174,6 +174,7 @@ public class QuorumPeerConfig {
         LOG.info("Reading configuration from: " + path);
 
         try {
+            // 创建file，并根据配置验证相对路径和文件是否存在
             File configFile = (new VerifyingFileFactory.Builder(LOG)
                 .warnForRelativePath()
                 .failForNonExistingPath()
@@ -182,15 +183,20 @@ public class QuorumPeerConfig {
             Properties cfg = new Properties();
             FileInputStream in = new FileInputStream(configFile);
             try {
+                // 加载配置文件
                 cfg.load(in);
                 configFileStr = path;
             } finally {
                 in.close();
             }
 
-            /* Read entire config file as initial configuration */
+            /**
+             * Read entire config file as initial configuration
+             * 保存初始化配置
+             */
             initialConfig = new String(Files.readAllBytes(configFile.toPath()));
 
+            // 解析配置
             parseProperties(cfg);
         } catch (IOException e) {
             throw new ConfigException("Error processing " + path, e);
@@ -198,16 +204,19 @@ public class QuorumPeerConfig {
             throw new ConfigException("Error processing " + path, e);
         }
 
+        // 加载动态配置
         if (dynamicConfigFileStr != null) {
             try {
                 Properties dynamicCfg = new Properties();
                 FileInputStream inConfig = new FileInputStream(dynamicConfigFileStr);
                 try {
                     dynamicCfg.load(inConfig);
+                    // 动态配置需要版本控制
                     if (dynamicCfg.getProperty("version") != null) {
                         throw new ConfigException("dynamic file shouldn't have version inside");
                     }
 
+                    // 从文件名获取16进制版本号
                     String version = getVersionFromFilename(dynamicConfigFileStr);
                     // If there isn't any version associated with the filename,
                     // the default version is 0.
@@ -217,6 +226,7 @@ public class QuorumPeerConfig {
                 } finally {
                     inConfig.close();
                 }
+                // 加载仲裁节点配置（集群相关配置）
                 setupQuorumPeerConfig(dynamicCfg, false);
 
             } catch (IOException e) {
@@ -224,6 +234,7 @@ public class QuorumPeerConfig {
             } catch (IllegalArgumentException e) {
                 throw new ConfigException("Error processing " + dynamicConfigFileStr, e);
             }
+            // 处理下一动态配置文件
             File nextDynamicConfigFile = new File(configFileStr + nextDynamicConfigFileSuffix);
             if (nextDynamicConfigFile.exists()) {
                 try {
@@ -242,6 +253,7 @@ public class QuorumPeerConfig {
                             break;
                         }
                     }
+                    // 设置quorum校验器
                     lastSeenQuorumVerifier = createQuorumVerifier(dynamicConfigNextCfg, isHierarchical);
                 } catch (IOException e) {
                     LOG.warn("NextQuorumVerifier is initiated to null");
@@ -390,10 +402,12 @@ public class QuorumPeerConfig {
             } else if (key.equals("multiAddress.reachabilityCheckEnabled")) {
                 multiAddressReachabilityCheckEnabled = parseBoolean(key, value);
             } else {
+                // 多余属性设置为环境变量
                 System.setProperty("zookeeper." + key, value);
             }
         }
 
+        // 校验配置冲突
         if (!quorumEnableSasl && quorumServerRequireSasl) {
             throw new IllegalArgumentException(QuorumAuth.QUORUM_SASL_AUTH_ENABLED
                                                + " is disabled, so cannot enable "
@@ -415,7 +429,7 @@ public class QuorumPeerConfig {
 
         // Reset to MIN_SNAP_RETAIN_COUNT if invalid (less than 3)
         // PurgeTxnLog.purge(File, File, int) will not allow to purge less
-        // than 3.
+        // than 3. snapshot最少保留数为3
         if (snapRetainCount < MIN_SNAP_RETAIN_COUNT) {
             LOG.warn("Invalid autopurge.snapRetainCount: "
                      + snapRetainCount
@@ -471,6 +485,7 @@ public class QuorumPeerConfig {
             throw new IllegalArgumentException("tickTime is not set");
         }
 
+        // 默认会话最小超时时间为2个tickTime，最大超时时间为20个tickTime
         minSessionTimeout = minSessionTimeout == -1 ? tickTime * 2 : minSessionTimeout;
         maxSessionTimeout = maxSessionTimeout == -1 ? tickTime * 20 : maxSessionTimeout;
 
@@ -480,6 +495,7 @@ public class QuorumPeerConfig {
 
         LOG.info("metricsProvider.className is {}", metricsProviderClassName);
         try {
+            // 通过全限定名称加载指标实现类
             Class.forName(metricsProviderClassName, false, Thread.currentThread().getContextClassLoader());
         } catch (ClassNotFoundException error) {
             throw new IllegalArgumentException("metrics provider class was not found", error);
@@ -487,11 +503,14 @@ public class QuorumPeerConfig {
 
         // backward compatibility - dynamic configuration in the same file as
         // static configuration params see writeDynamicConfig()
+        // 后向兼容，处理动态配置在静态配置文件的情况
         if (dynamicConfigFileStr == null) {
             setupQuorumPeerConfig(zkProp, true);
+            // 分布式模式且允许配置热加载
             if (isDistributed() && isReconfigEnabled()) {
                 // we don't backup static config for standalone mode.
                 // we also don't backup if reconfig feature is disabled.
+                // 备份配置文件
                 backupOldConfig();
             }
         }
@@ -661,9 +680,13 @@ public class QuorumPeerConfig {
 
     void setupQuorumPeerConfig(Properties prop, boolean configBackwardCompatibilityMode) throws IOException, ConfigException {
         quorumVerifier = parseDynamicConfig(prop, electionAlg, true, configBackwardCompatibilityMode);
+        // 初始化server id
         setupMyId();
+        // 初始化客户端通信监听地址（动态配置>静态配置）
         setupClientPort();
+        // 设置角色（动态配置>静态配置）
         setupPeerType();
+        // 分布式配置验证
         checkValidity();
     }
 
@@ -675,6 +698,7 @@ public class QuorumPeerConfig {
      * @throws ConfigException
      */
     public static QuorumVerifier parseDynamicConfig(Properties dynamicConfigProp, int eAlg, boolean warnings, boolean configBackwardCompatibilityMode) throws IOException, ConfigException {
+        // quorum是否分层（存在group或者weight）
         boolean isHierarchical = false;
         for (Entry<Object, Object> entry : dynamicConfigProp.entrySet()) {
             String key = entry.getKey().toString().trim();
@@ -686,9 +710,12 @@ public class QuorumPeerConfig {
             }
         }
 
+        // 创建quorum校验器
         QuorumVerifier qv = createQuorumVerifier(dynamicConfigProp, isHierarchical);
 
+        // 仲裁节点（参与者）数量
         int numParticipators = qv.getVotingMembers().size();
+        // 观察者数量
         int numObservers = qv.getObservingMembers().size();
         if (numParticipators == 0) {
             if (!standaloneEnabled) {

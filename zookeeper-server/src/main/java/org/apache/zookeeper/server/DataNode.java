@@ -172,11 +172,27 @@ public class DataNode implements Record {
     }
 
     public synchronized void deserialize(InputArchive archive, String tag) throws IOException {
+        // do nothing 标识开始读取记录
         archive.startRecord("node");
+        // 读取数据，字节数组（字节数n(int) + n * 字节）
         data = archive.readBuffer("data");
+        // 读取ACL列表索引
         acl = archive.readLong("acl");
         stat = new StatPersisted();
+        /**
+         * 读取状态信息
+         * czxid：创建事务id
+         * mzxid：修改事务id
+         * ctime：创建时间
+         * mtime：修改时间
+         * version：版本
+         * cversion：创建版本
+         * aversion：
+         * ephemeralOwner：
+         * pzxid
+         */
         stat.deserialize(archive, "statpersisted");
+        // do nothing 标识读取记录结束
         archive.endRecord("node");
     }
 

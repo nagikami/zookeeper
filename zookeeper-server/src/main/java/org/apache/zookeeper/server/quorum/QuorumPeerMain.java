@@ -140,9 +140,11 @@ public class QuorumPeerMain {
             config.getPurgeInterval());
         purgeMgr.start();
 
+        // 分布式模式（单机模式未开启或者仲裁节点数大于1）
         if (args.length == 1 && config.isDistributed()) {
             runFromConfig(config);
         } else {
+            // 单机模式
             LOG.warn("Either no config or no quorum defined in config, running in standalone mode");
             // there is only server in the quorum -- run as standalone
             ZooKeeperServerMain.main(args);
@@ -151,6 +153,7 @@ public class QuorumPeerMain {
 
     public void runFromConfig(QuorumPeerConfig config) throws IOException, AdminServerException {
         try {
+            // 注册log4j到JMX
             ManagedUtil.registerLog4jMBeans();
         } catch (JMException e) {
             LOG.warn("Unable to register log4j JMX control", e);
@@ -159,6 +162,7 @@ public class QuorumPeerMain {
         LOG.info("Starting quorum peer, myid=" + config.getServerId());
         final MetricsProvider metricsProvider;
         try {
+            // 启动指标收集服务
             metricsProvider = MetricsProviderBootstrap.startMetricsProvider(
                 config.getMetricsProviderClassName(),
                 config.getMetricsProviderConfiguration());
@@ -166,11 +170,13 @@ public class QuorumPeerMain {
             throw new IOException("Cannot boot MetricsProvider " + config.getMetricsProviderClassName(), error);
         }
         try {
+            // 初始化指标收集器
             ServerMetrics.metricsProviderInitialized(metricsProvider);
             ProviderRegistry.initialize();
             ServerCnxnFactory cnxnFactory = null;
             ServerCnxnFactory secureCnxnFactory = null;
 
+            // 创建ServerCnxnFactory，用于管理ServerCnxn（代表客户端和服务端的一个连接）
             if (config.getClientPortAddress() != null) {
                 cnxnFactory = ServerCnxnFactory.createFactory();
                 cnxnFactory.configure(config.getClientPortAddress(), config.getMaxClientCnxns(), config.getClientPortListenBacklog(), false);
@@ -181,6 +187,7 @@ public class QuorumPeerMain {
                 secureCnxnFactory.configure(config.getSecureClientPortAddress(), config.getMaxClientCnxns(), config.getClientPortListenBacklog(), true);
             }
 
+            // 创建QuorumPeer，用于管理quorum协议
             quorumPeer = getQuorumPeer();
             quorumPeer.setTxnFactory(new FileTxnSnapLog(config.getDataLogDir(), config.getDataDir()));
             quorumPeer.enableLocalSessions(config.areLocalSessionsEnabled());
@@ -227,14 +234,19 @@ public class QuorumPeerMain {
                 quorumPeer.setQuorumLearnerLoginContext(config.quorumLearnerLoginContext);
             }
             quorumPeer.setQuorumCnxnThreadsSize(config.quorumCnxnThreadsSize);
+            // 初始化认证
             quorumPeer.initialize();
 
             if (config.jvmPauseMonitorToRun) {
+                // 设置JVM暂停监视器
                 quorumPeer.setJvmPauseMonitor(new JvmPauseMonitor(config));
             }
 
+            // 启动server
             quorumPeer.start();
+            // 添加启动停止审计日志
             ZKAuditProvider.addZKStartStopAuditLog();
+            // 等待server线程die
             quorumPeer.join();
         } catch (InterruptedException e) {
             // warn, but generally this is ok

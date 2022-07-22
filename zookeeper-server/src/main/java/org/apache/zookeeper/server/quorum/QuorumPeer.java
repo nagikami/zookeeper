@@ -276,6 +276,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
 
         QuorumServer(long sid, String addressStr, Function<InetSocketAddress, InetAddress> getInetAddress) throws ConfigException {
             this.id = sid;
+            // 初始化节点
             initializeWithAddressString(addressStr, getInetAddress);
         }
 
@@ -347,12 +348,14 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                 InetSocketAddress tempElectionAddress;
                 try {
                     tempAddress = new InetSocketAddress(serverHostName, Integer.parseInt(serverParts[1]));
+                    // 添加节点通信地址
                     addr.addAddress(tempAddress);
                 } catch (NumberFormatException e) {
                     throw new ConfigException("Address unresolved: " + serverHostName + ":" + serverParts[1]);
                 }
                 try {
                     tempElectionAddress = new InetSocketAddress(serverHostName, Integer.parseInt(serverParts[2]));
+                    // 添加仲裁选举地址
                     electionAddr.addAddress(tempElectionAddress);
                 } catch (NumberFormatException e) {
                     throw new ConfigException("Address unresolved: " + serverHostName + ":" + serverParts[2]);
@@ -396,10 +399,12 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                 this.hostname = serverHostName;
             }
 
+            // 设置角色
             if (newType != null) {
                 type = newType;
             }
 
+            // 设置客户端通信监听、节点通信、选举地址
             setMyAddrs();
         }
 
@@ -409,9 +414,13 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
 
         private void setMyAddrs() {
             this.myAddrs = new ArrayList<>();
+            // 添加节点通信地址
             this.myAddrs.addAll(this.addr.getAllAddresses());
+            // 添加客户端通信监听地址
             this.myAddrs.add(this.clientAddr);
+            // 添加节点选举地址
             this.myAddrs.addAll(this.electionAddr.getAllAddresses());
+            // 排除空地址、本地地址、回环地址
             this.myAddrs = excludedSpecialAddresses(this.myAddrs);
         }
 
@@ -503,11 +512,13 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
             List<InetSocketAddress> included = new ArrayList<>();
 
             for (InetSocketAddress addr : addrs) {
+                // 排除空地址
                 if (addr == null) {
                     continue;
                 }
                 InetAddress inetaddr = addr.getAddress();
 
+                // 排除本地和回环地址
                 if (inetaddr == null || inetaddr.isAnyLocalAddress() // wildCard addresses (0.0.0.0 or [::])
                     || inetaddr.isLoopbackAddress()) { // loopback address(localhost/127.0.0.1)
                     continue;
@@ -1105,9 +1116,10 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
     }
 
     public void initialize() throws SaslException {
-        // init quorum auth server & learner
+        // init quorum auth server & learner 开启了sasl认证
         if (isQuorumSaslAuthEnabled()) {
             Set<String> authzHosts = new HashSet<String>();
+            // 获取所有节点host
             for (QuorumServer qs : getView().values()) {
                 authzHosts.add(qs.hostname);
             }

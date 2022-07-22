@@ -1199,6 +1199,7 @@ public class DataTree {
      *            the int count
      */
     private void getCounts(String path, Counts counts) {
+        // 获取节点
         DataNode node = getNode(path);
         if (node == null) {
             return;
@@ -1208,11 +1209,13 @@ public class DataTree {
         synchronized (node) {
             Set<String> childs = node.getChildren();
             children = childs.toArray(new String[childs.size()]);
+            // 计算当前节点数据大小
             len = (node.data == null ? 0 : node.data.length);
         }
-        // add itself
+        // add itself 节点数量自增，节点数据累加
         counts.count += 1;
         counts.bytes += len;
+        // 递归
         for (String child : children) {
             getCounts(path + "/" + child, counts);
         }
@@ -1226,11 +1229,16 @@ public class DataTree {
      */
     private void updateQuotaForPath(String path) {
         Counts c = new Counts();
+        // 计算当前节点及其子节点数量和数据大小
         getCounts(path, c);
         StatsTrack strack = new StatsTrack();
+        // 设置字节数
         strack.setBytes(c.bytes);
+        // 设置节点数
         strack.setCount(c.count);
+        // 计算当前节点全路径 /zookeeper/quota + path + /zookeeper_stats
         String statPath = Quotas.statPath(path);
+        // 获取叶子节点
         DataNode node = getNode(statPath);
         // it should exist
         if (node == null) {
@@ -1256,21 +1264,25 @@ public class DataTree {
             Set<String> childs = node.getChildren();
             children = childs.toArray(new String[childs.size()]);
         }
+        // 子节点为叶子节点
         if (children.length == 0) {
             // this node does not have a child
             // is the leaf node
             // check if its the leaf node
+            // 配额叶子节点suffix /zookeeper_limits
             String endString = "/" + Quotas.limitNode;
             if (path.endsWith(endString)) {
                 // ok this is the limit node
                 // get the real node and update
                 // the count and the bytes
+                // 获取/zookeeper/quota和/zookeeper_limits之间的路径
                 String realPath = path.substring(Quotas.quotaZookeeper.length(), path.indexOf(endString));
                 updateQuotaForPath(realPath);
                 this.pTrie.addPath(realPath);
             }
             return;
         }
+        // 子节点为非叶子节点，递归
         for (String child : children) {
             traverseNode(path + "/" + child);
         }
@@ -1280,7 +1292,9 @@ public class DataTree {
      * this method sets up the path trie and sets up stats for quota nodes
      */
     private void setupQuota() {
+        // 获取配额路径：/zookeeper/quota
         String quotaPath = Quotas.quotaZookeeper;
+        // 获取配额节点
         DataNode node = getNode(quotaPath);
         if (node == null) {
             return;
@@ -1353,23 +1367,32 @@ public class DataTree {
     }
 
     public void deserialize(InputArchive ia, String tag) throws IOException {
+        // 加载ACL数据
         aclCache.deserialize(ia);
+        // 清除节点数据
         nodes.clear();
         pTrie.clear();
+        // 设置路径和节点数据总大小为0
         nodeDataSize.set(0);
+        // 读取path（字节数n(int) + n * 字节）
         String path = ia.readString("path");
         while (!"/".equals(path)) {
             DataNode node = new DataNode();
+            // 读取节点记录（data、ACL、stat）到node（DataNode.deserialize()）
             ia.readRecord(node, "node");
+            // 加载路径和节点映射表
             nodes.put(path, node);
             synchronized (node) {
+                // 添加ACL引用计数
                 aclCache.addUsage(node.acl);
             }
             int lastSlash = path.lastIndexOf('/');
             if (lastSlash == -1) {
+                // 加载根节点
                 root = node;
             } else {
                 String parentPath = path.substring(0, lastSlash);
+                // 获取父节点
                 DataNode parent = nodes.get(parentPath);
                 if (parent == null) {
                     throw new IOException("Invalid Datatree, unable to find "
@@ -1378,9 +1401,12 @@ public class DataTree {
                                           + " of path "
                                           + path);
                 }
+                // 为父节点添加子节点
                 parent.addChild(path.substring(lastSlash + 1));
+                // 获取临时节点拥有者session id，不是临时节点则返回0
                 long eowner = node.stat.getEphemeralOwner();
                 EphemeralType ephemeralType = EphemeralType.get(eowner);
+                // 按照节点类型加载节点分类集合
                 if (ephemeralType == EphemeralType.CONTAINER) {
                     containers.add(path);
                 } else if (ephemeralType == EphemeralType.TTL) {
@@ -1398,14 +1424,17 @@ public class DataTree {
         }
         // have counted digest for root node with "", ignore here to avoid
         // counting twice for root node
+        // 加载根路径（/）和根节点映射
         nodes.putWithoutDigest("/", root);
 
+        // 设置节点数据大小（path.length + data.length）
         nodeDataSize.set(approximateDataSize());
 
         // we are done with deserializing the
         // the datatree
         // update the quotas - create path trie
         // and also update the stat nodes
+        // 设置配额
         setupQuota();
 
         aclCache.purgeUnused();

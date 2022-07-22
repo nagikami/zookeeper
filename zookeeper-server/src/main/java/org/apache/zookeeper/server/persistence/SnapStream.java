@@ -94,7 +94,7 @@ public class SnapStream {
 
     /**
      * Return the CheckedInputStream based on the extension of the fileName.
-     *
+     * 根据文件扩展名获取输入流
      * @param file the file the InputStream read from
      * @return the specific InputStream
      * @throws IOException
@@ -215,8 +215,9 @@ public class SnapStream {
     public static StreamMode getStreamMode(String fileName) {
         String[] splitSnapName = fileName.split("\\.");
 
-        // Use file extension to detect format
+        // Use file extension to detect format 根据文件扩展名获取流类型
         if (splitSnapName.length > 1) {
+            // 获取文件扩展名
             String mode = splitSnapName[splitSnapName.length - 1];
             return StreamMode.fromString(mode);
         }

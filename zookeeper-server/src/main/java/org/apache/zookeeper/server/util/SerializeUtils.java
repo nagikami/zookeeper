@@ -146,9 +146,13 @@ public class SerializeUtils {
 
     public static void deserializeSnapshot(DataTree dt, InputArchive ia, Map<Long, Integer> sessions) throws IOException {
         int count = ia.readInt("count");
+        // 加载session数据
         while (count > 0) {
+            // 获取session id
             long id = ia.readLong("id");
+            // 获取timeout
             int to = ia.readInt("timeout");
+            // 加载session id和session timeout映射表
             sessions.put(id, to);
             if (LOG.isTraceEnabled()) {
                 ZooTrace.logTraceMessage(

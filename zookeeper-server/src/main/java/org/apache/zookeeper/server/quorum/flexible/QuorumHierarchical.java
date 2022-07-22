@@ -191,18 +191,26 @@ public class QuorumHierarchical implements QuorumVerifier {
 
             if (key.startsWith("server.")) {
                 int dot = key.indexOf('.');
+                // 获取节点id
                 long sid = Long.parseLong(key.substring(dot + 1));
+                // 创建节点
                 QuorumServer qs = new QuorumServer(sid, value);
+                // 添加节点到节点map
                 allMembers.put(Long.valueOf(sid), qs);
+                // 节点为默认参与者角色
                 if (qs.type == LearnerType.PARTICIPANT) {
+                    // 添加参与者（仲裁节点）角色节点
                     participatingMembers.put(Long.valueOf(sid), qs);
                 } else {
+                    // 添加观察者角色节点
                     observingMembers.put(Long.valueOf(sid), qs);
                 }
             } else if (key.startsWith("group")) {
                 int dot = key.indexOf('.');
+                // 获取组id
                 long gid = Long.parseLong(key.substring(dot + 1));
 
+                // 统计分组数量
                 numGroups++;
 
                 String[] parts = value.split(":");
@@ -211,6 +219,7 @@ public class QuorumHierarchical implements QuorumVerifier {
                     if (serverGroup.containsKey(sid)) {
                         throw new ConfigException("Server " + sid + "is in multiple groups");
                     } else {
+                        // 添加节点分组信息
                         serverGroup.put(sid, gid);
                     }
                 }
@@ -218,24 +227,30 @@ public class QuorumHierarchical implements QuorumVerifier {
             } else if (key.startsWith("weight")) {
                 int dot = key.indexOf('.');
                 long sid = Long.parseLong(key.substring(dot + 1));
+                // 添加节点权重信息
                 serverWeight.put(sid, Long.parseLong(value));
             } else if (key.equals("version")) {
+                // 设置版本信息
                 version = Long.parseLong(value, 16);
             }
         }
 
+        // 遍历所有节点
         for (QuorumServer qs : allMembers.values()) {
             Long id = qs.id;
             if (qs.type == LearnerType.PARTICIPANT) {
+                // 参与者必须有分组
                 if (!serverGroup.containsKey(id)) {
                     throw new ConfigException("Server " + id + "is not in a group");
                 }
+                // 为未指定权重参与者设置默认权重
                 if (!serverWeight.containsKey(id)) {
                     serverWeight.put(id, (long) 1);
                 }
             }
         }
 
+        // 计算分组权重
         computeGroupWeight();
     }
 

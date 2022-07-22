@@ -67,6 +67,7 @@ public class FileSnap implements SnapShot {
 
     /**
      * deserialize a data tree from the most recent snapshot
+     * 从最近的100个snapshot反序列化到内存为DataTree结构
      * @return the zxid of the snapshot
      */
     public long deserialize(DataTree dt, Map<Long, Integer> sessions) throws IOException {
@@ -83,8 +84,11 @@ public class FileSnap implements SnapShot {
         for (int i = 0, snapListSize = snapList.size(); i < snapListSize; i++) {
             snap = snapList.get(i);
             LOG.info("Reading snapshot {}", snap);
+            // 获取快照事务id
             snapZxid = Util.getZxidFromName(snap.getName(), SNAPSHOT_FILE_PREFIX);
             try (CheckedInputStream snapIS = SnapStream.getInputStream(snap)) {
+                // 获取输入归档（聚合了实现DataInput接口并聚合了InputStream作为数据源的流装饰类
+                // DataInputStream）
                 InputArchive ia = BinaryInputArchive.getArchive(snapIS);
                 deserialize(dt, sessions, ia);
                 SnapStream.checkSealIntegrity(snapIS, ia);
@@ -121,6 +125,7 @@ public class FileSnap implements SnapShot {
 
     /**
      * deserialize the datatree from an inputarchive
+     * 从数据流反序列化DataTree对象
      * @param dt the datatree to be serialized into
      * @param sessions the sessions to be filled up
      * @param ia the input archive to restore from
@@ -128,10 +133,13 @@ public class FileSnap implements SnapShot {
      */
     public void deserialize(DataTree dt, Map<Long, Integer> sessions, InputArchive ia) throws IOException {
         FileHeader header = new FileHeader();
+        // 反序列化文件头
         header.deserialize(ia, "fileheader");
+        // 校验文件前4个字节
         if (header.getMagic() != SNAP_MAGIC) {
             throw new IOException("mismatching magic headers " + header.getMagic() + " !=  " + FileSnap.SNAP_MAGIC);
         }
+        // 反序列化snapshot
         SerializeUtils.deserializeSnapshot(dt, ia, sessions);
     }
 
@@ -160,6 +168,7 @@ public class FileSnap implements SnapShot {
      * @throws IOException
      */
     protected List<File> findNValidSnapshots(int n) throws IOException {
+        // 获取降序排列的文件列表
         List<File> files = Util.sortDataDir(snapDir.listFiles(), SNAPSHOT_FILE_PREFIX, false);
         int count = 0;
         List<File> list = new ArrayList<File>();
