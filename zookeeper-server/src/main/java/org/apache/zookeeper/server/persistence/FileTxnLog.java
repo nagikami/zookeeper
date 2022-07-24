@@ -311,11 +311,13 @@ public class FileTxnLog implements TxnLog, Closeable {
      * Find the log file that starts at, or just before, the snapshot. Return
      * this and all subsequent logs. Results are ordered by zxid of file,
      * ascending order.
+     * 按时间升序返回snapshot之后的所有事务日志
      * @param logDirList array of files
      * @param snapshotZxid return files at, or before this zxid
      * @return log files that starts at, or just before, the snapshot and subsequent ones
      */
     public static File[] getLogFiles(File[] logDirList, long snapshotZxid) {
+        // 升序排列日志文件
         List<File> files = Util.sortDataDir(logDirList, LOG_FILE_PREFIX, true);
         long logZxid = 0;
         // Find the log file that starts before or at the same time as the
@@ -327,10 +329,12 @@ public class FileTxnLog implements TxnLog, Closeable {
             }
             // the files
             // are sorted with zxid's
+            // 记录不大于snapshotZxid的最后一个fzxid
             if (fzxid > logZxid) {
                 logZxid = fzxid;
             }
         }
+        // 返回之后的所有日志文件
         List<File> v = new ArrayList<File>(5);
         for (File f : files) {
             long fzxid = Util.getZxidFromName(f.getName(), LOG_FILE_PREFIX);
@@ -441,6 +445,7 @@ public class FileTxnLog implements TxnLog, Closeable {
      * @param fastForward true if the iterator should be fast forwarded to point
      *        to the txn of a given zxid, else the iterator will point to the
      *        starting txn of a txnlog that may contain txn of a given zxid
+     *        true：迭代器指向文件最后一个事务节点，false：迭代器指向文件的第一事务节点
      * @return returns an iterator to iterate through the transaction logs
      */
     public TxnIterator read(long zxid, boolean fastForward) throws IOException {
@@ -624,9 +629,12 @@ public class FileTxnLog implements TxnLog, Closeable {
         public FileTxnIterator(File logDir, long zxid, boolean fastForward) throws IOException {
             this.logDir = logDir;
             this.zxid = zxid;
+            // 初始化到第一个日志文件和日志entry（节点）
             init();
 
+            // 开启快进
             if (fastForward && hdr != null) {
+                // 读取当前日志文件最后一个日志entry
                 while (hdr.getZxid() < zxid) {
                     if (!next()) {
                         break;
@@ -652,10 +660,13 @@ public class FileTxnLog implements TxnLog, Closeable {
          */
         void init() throws IOException {
             storedFiles = new ArrayList<>();
+            // 按照降序获取所有的日志文件
             List<File> files = Util.sortDataDir(
+                    // 按照升序返回所有的日志文件
                 FileTxnLog.getLogFiles(logDir.listFiles(), 0),
                 LOG_FILE_PREFIX,
                 false);
+            // 获取zxid之后的日志文件（降序）
             for (File f : files) {
                 if (Util.getZxidFromName(f.getName(), LOG_FILE_PREFIX) >= zxid) {
                     storedFiles.add(f);
@@ -665,7 +676,9 @@ public class FileTxnLog implements TxnLog, Closeable {
                     break;
                 }
             }
+            // 指向storedFiles最后一个日志文件（zxid最小）
             goToNextLog();
+            // 读取第一个日志entry
             next();
         }
 
@@ -682,13 +695,16 @@ public class FileTxnLog implements TxnLog, Closeable {
 
         /**
          * go to the next logfile
+         * 指向下一个日志文件
          * @return true if there is one and false if there is no
          * new file to be read
          * @throws IOException
          */
         private boolean goToNextLog() throws IOException {
             if (storedFiles.size() > 0) {
+                // 获取最后一个日志文件（zxid最小）
                 this.logFile = storedFiles.remove(storedFiles.size() - 1);
+                // 创建新的日志输入流
                 ia = createInputArchive(this.logFile);
                 return true;
             }
@@ -713,6 +729,7 @@ public class FileTxnLog implements TxnLog, Closeable {
 
         /**
          * Invoked to indicate that the input stream has been created.
+         * 返回输入流（有则返回，无则创建）
          * @param logFile the file to read.
          * @throws IOException
          **/
@@ -745,22 +762,29 @@ public class FileTxnLog implements TxnLog, Closeable {
                 return false;
             }
             try {
+                // 读取日志entryCRC校验码
                 long crcValue = ia.readLong("crcvalue");
+                // 读取事务entry
                 byte[] bytes = Util.readTxnBytes(ia);
                 // Since we preallocate, we define EOF to be an
                 if (bytes == null || bytes.length == 0) {
                     throw new EOFException("Failed to read " + logFile);
                 }
                 // EOF or corrupted record
-                // validate CRC
+                // validate CRC 验证CRC校验码
                 Checksum crc = makeChecksumAlgorithm();
+                // 计算读取到的记录的Adler32校验码
                 crc.update(bytes, 0, bytes.length);
                 if (crcValue != crc.getValue()) {
                     throw new IOException(CRC_ERROR);
                 }
+                // 加载事务entry
                 TxnLogEntry logEntry = SerializeUtils.deserializeTxn(bytes);
+                // 设置当前entry文件头
                 hdr = logEntry.getHeader();
+                // 设置日志记录
                 record = logEntry.getTxn();
+                // 设置摘要
                 digest = logEntry.getDigest();
             } catch (EOFException e) {
                 LOG.debug("EOF exception", e);

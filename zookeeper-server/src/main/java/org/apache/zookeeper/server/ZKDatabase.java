@@ -284,9 +284,11 @@ public class ZKDatabase {
      */
     public long loadDataBase() throws IOException {
         long startTime = Time.currentElapsedTime();
+        // 加载最近一个有效snapshot，回放事务日志
         long zxid = snapLog.restore(dataTree, sessionsWithTimeouts, commitProposalPlaybackListener);
         initialized = true;
         long loadTime = Time.currentElapsedTime() - startTime;
+        // 上报数据库初始化耗时
         ServerMetrics.getMetrics().DB_INIT_TIME.add(loadTime);
         LOG.info("Snapshot loaded in {} ms, highest zxid is 0x{}, digest is {}",
                 loadTime, Long.toHexString(zxid), dataTree.getTreeDigest());
@@ -474,6 +476,7 @@ public class ZKDatabase {
 
     /**
      * the process txn on the data and perform digest comparision.
+     * 重放事务日志
      * @param hdr the txnheader for the txn
      * @param txn the transaction that needs to be processed
      * @param digest the expected digest. A null value would skip the check

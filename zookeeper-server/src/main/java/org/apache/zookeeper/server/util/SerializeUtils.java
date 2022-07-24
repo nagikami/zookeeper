@@ -57,12 +57,17 @@ public class SerializeUtils {
 
     public static TxnLogEntry deserializeTxn(byte[] txnBytes) throws IOException {
         TxnHeader hdr = new TxnHeader();
+        // 转换byte[]为流
         final ByteArrayInputStream bais = new ByteArrayInputStream(txnBytes);
+        // 为流添加按java类型读取byte功能（实现DataInput接口）
         InputArchive ia = BinaryInputArchive.getArchive(bais);
 
+        // 读取文件头（clientId、cxid、zxid、time、type（操作类型））
         hdr.deserialize(ia, "hdr");
+        // 标记流起始位置
         bais.mark(bais.available());
         Record txn = null;
+        // 根据操作类型创建对应的事务entry
         switch (hdr.getType()) {
         case OpCode.createSession:
             // This isn't really an error txn; it just has the same
@@ -105,6 +110,7 @@ public class SerializeUtils {
         }
         if (txn != null) {
             try {
+                // 加载事务记录
                 txn.deserialize(ia, "txn");
             } catch (EOFException e) {
                 // perhaps this is a V0 Create
@@ -141,6 +147,7 @@ public class SerializeUtils {
             }
         }
 
+        // 返回事务entry
         return new TxnLogEntry(txn, hdr, digest);
     }
 
@@ -162,16 +169,20 @@ public class SerializeUtils {
             }
             count--;
         }
+        // 反序列化DataTree
         dt.deserialize(ia, "tree");
     }
 
     public static void serializeSnapshot(DataTree dt, OutputArchive oa, Map<Long, Integer> sessions) throws IOException {
         HashMap<Long, Integer> sessSnap = new HashMap<Long, Integer>(sessions);
+        // 写入session映射表大小，标签无含义，只用用于标识
         oa.writeInt(sessSnap.size(), "count");
+        // 写入session映射信息（客户端id，过期时间）
         for (Entry<Long, Integer> entry : sessSnap.entrySet()) {
             oa.writeLong(entry.getKey().longValue(), "id");
             oa.writeInt(entry.getValue().intValue(), "timeout");
         }
+        // 序列化datatree
         dt.serialize(oa, "tree");
     }
 

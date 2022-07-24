@@ -856,12 +856,14 @@ public class DataTree {
         ProcessTxnResult rc = new ProcessTxnResult();
 
         try {
+            // 获取事务节点文件头信息
             rc.clientId = header.getClientId();
             rc.cxid = header.getCxid();
             rc.zxid = header.getZxid();
             rc.type = header.getType();
             rc.err = 0;
             rc.multiResult = null;
+            // 根据操作类型，重放事务记录
             switch (header.getType()) {
             case OpCode.create:
                 CreateTxn createTxn = (CreateTxn) txn;
@@ -1052,7 +1054,9 @@ public class DataTree {
          * closeSession txn won't delete it anymore, and we'll get NODEEXISTS
          * error when replay the createNode txn. In this case, we need to
          * update the cversion and pzxid to the new value.
-         *
+         * 存在一种场景：父节点序列化后，子节点因为会话关闭被删除并被另一个会话创建，随之被序列化
+         * 即使回放closeSession操作也无法删除节点（子节点记录的会话信息已经更新为新会话），随后导致无法回放createNode操作，
+         * 因为节点已经存在，此时需要更父节点节点记录的cversion和pzxid（当前事务id）
          * Note, such failures on DT should be seen only during
          * restore.
          */
@@ -1085,6 +1089,9 @@ public class DataTree {
          *
          * To avoid this, we only update the lastProcessedZxid when the whole
          * multi-op txn is applied to DataTree.
+         * 如果在multi op开始时更新lastProcessedZxid，而在multi op未完成时就持久化了快照，
+         * 那么在加载快照时会从lastProcessedZxid之后加载，导致数据不连续
+         * 因此只在处理完最后一个事务节点时更新lastProcessedZxid
          */
         if (!isSubTxn) {
             /*
@@ -1100,6 +1107,7 @@ public class DataTree {
              * lastProcessedZxid.  During restore, we correctly handle the
              * case where the snapshot contains data ahead of the zxid associated
              * with the file.
+             * 防止在数据更新中持久化快照，先更新DataTree的数据后更新lastProcessedZxid，保证数据连续性
              */
             if (rc.zxid > lastProcessedZxid) {
                 lastProcessedZxid = rc.zxid;
@@ -1223,7 +1231,7 @@ public class DataTree {
 
     /**
      * update the quota for the given path
-     *
+     * 计算传入节点及其子节点的总字节数并更新到对应的配额状态节点
      * @param path
      *            the path to be used
      */
@@ -1236,18 +1244,21 @@ public class DataTree {
         strack.setBytes(c.bytes);
         // 设置节点数
         strack.setCount(c.count);
-        // 计算当前节点全路径 /zookeeper/quota + path + /zookeeper_stats
+        // 计算当前节点对应的配额状态节点（叶子节点）路径 /zookeeper/quota + path + /zookeeper_stats
         String statPath = Quotas.statPath(path);
-        // 获取叶子节点
+        // 获取配额状态节点
         DataNode node = getNode(statPath);
-        // it should exist
+        // it should exist 配额状态节点必须存在
         if (node == null) {
             LOG.warn("Missing quota stat node {}", statPath);
             return;
         }
         synchronized (node) {
+            // 无操作，如果节点不在/zookeeper/下，则删除节点digest，hash -= digest
             nodes.preChange(statPath, node);
+            // 保存当前节点及其子节点总字节数到对应的配额状态节点（叶子节点）
             node.data = strack.getStatsBytes();
+            // 无操作，如果节点不在/zookeeper/下，则添加节点digest，hash += digest
             nodes.postChange(statPath, node);
         }
     }
@@ -1269,15 +1280,17 @@ public class DataTree {
             // this node does not have a child
             // is the leaf node
             // check if its the leaf node
-            // 配额叶子节点suffix /zookeeper_limits
+            // 配额状态节点（叶子节点）suffix /zookeeper_limits
             String endString = "/" + Quotas.limitNode;
             if (path.endsWith(endString)) {
                 // ok this is the limit node
                 // get the real node and update
                 // the count and the bytes
-                // 获取/zookeeper/quota和/zookeeper_limits之间的路径
+                // 获取配额状态节点对应的路径（/zookeeper/quota和/zookeeper_limits之间的路径）
                 String realPath = path.substring(Quotas.quotaZookeeper.length(), path.indexOf(endString));
+                // 更新叶子节点的值为真实路径为path的节点及其子节点的存储数据的总字节数
                 updateQuotaForPath(realPath);
+                // 添加路径到目录树
                 this.pTrie.addPath(realPath);
             }
             return;
@@ -1292,13 +1305,14 @@ public class DataTree {
      * this method sets up the path trie and sets up stats for quota nodes
      */
     private void setupQuota() {
-        // 获取配额路径：/zookeeper/quota
+        // 获取配额状态记录路径：/zookeeper/quota
         String quotaPath = Quotas.quotaZookeeper;
-        // 获取配额节点
+        // 获取配额状态根节点
         DataNode node = getNode(quotaPath);
         if (node == null) {
             return;
         }
+        // 遍历并更新所有的配额状态节点
         traverseNode(quotaPath);
     }
 
@@ -1322,9 +1336,10 @@ public class DataTree {
         DataNode nodeCopy;
         synchronized (node) {
             StatPersisted statCopy = new StatPersisted();
+            // 复制节点状态信息
             copyStatPersisted(node.stat, statCopy);
             //we do not need to make a copy of node.data because the contents
-            //are never changed
+            //are never changed 引用节点数据字节数组（synchronized保证数据不会改变，所以不需要复制）
             nodeCopy = new DataNode(node.data, node.acl, statCopy);
             Set<String> childs = node.getChildren();
             children = childs.toArray(new String[childs.size()]);
@@ -1332,6 +1347,7 @@ public class DataTree {
         serializeNodeData(oa, pathString, nodeCopy);
         path.append('/');
         int off = path.length();
+        // 递归处理子节点
         for (String child : children) {
             // since this is single buffer being resused
             // we need
@@ -1353,16 +1369,20 @@ public class DataTree {
     }
 
     public void serializeNodes(OutputArchive oa) throws IOException {
+        // 序列化节点信息
         serializeNode(oa, new StringBuilder());
         // / marks end of stream
         // we need to check if clear had been called in between the snapshot.
+        // 写入/，标识流结束信息
         if (root != null) {
             oa.writeString("/", "path");
         }
     }
 
     public void serialize(OutputArchive oa, String tag) throws IOException {
+        // 序列化ACl列表
         serializeAcls(oa);
+        // 序列化节点信息
         serializeNodes(oa);
     }
 
@@ -1427,16 +1447,22 @@ public class DataTree {
         // 加载根路径（/）和根节点映射
         nodes.putWithoutDigest("/", root);
 
-        // 设置节点数据大小（path.length + data.length）
+        // 设置节点数据总大小（path.length + data.length）
         nodeDataSize.set(approximateDataSize());
 
         // we are done with deserializing the
         // the datatree
         // update the quotas - create path trie
         // and also update the stat nodes
-        // 设置配额
+        /**
+         * 更新节点配额状态
+         * 所有的配额信息都保存在/zookeeper/quota下，
+         * e.g. 存在节点/abc
+         * 则会存在/zookeeper/quota/abc/zookeeper_limits节点保存abc及其子节点的总数据大小
+         */
         setupQuota();
 
+        // 清理未被引用的ACL列表
         aclCache.purgeUnused();
     }
 
@@ -1699,7 +1725,7 @@ public class DataTree {
      * Serializing the digest to snapshot, this is done after the data tree
      * is being serialized, so when we replay the txns and it hits this zxid
      * we know we should be in a non-fuzzy state, and have the same digest.
-     *
+     * 序列化事务id和datatree摘要
      * @param oa the output stream to write to
      * @return true if the digest is serialized successfully
      */
@@ -1722,7 +1748,7 @@ public class DataTree {
      * digestFromLoadedSnapshot.
      *
      * @param ia the input stream to read from
-     * @param startZxidOfSnapshot the zxid of snapshot file
+     * @param startZxidOfSnapshot the zxid of snapshot file 当前snapshot最后处理的事务id（参数名有误？）
      * @return the true if it deserialized successfully
      */
     public boolean deserializeZxidDigest(InputArchive ia, long startZxidOfSnapshot) throws IOException {
@@ -1732,7 +1758,9 @@ public class DataTree {
 
         try {
             ZxidDigest zxidDigest = new ZxidDigest();
+            // 读取摘要
             zxidDigest.deserialize(ia);
+            // 事务id大于0，则更新摘要
             if (zxidDigest.zxid > 0) {
                 digestFromLoadedSnapshot = zxidDigest;
                 LOG.info("The digest in the snapshot has digest version of {}, "
@@ -1747,7 +1775,7 @@ public class DataTree {
 
             // There is possibility that the start zxid of a snapshot might
             // be larger than the digest zxid in snapshot.
-            //
+            // 存在snapshot文件名记录的最后事务id大于摘要记录的最后事务id的可能
             // Known cases:
             //
             // The new leader set the last processed zxid to be the new
@@ -1756,10 +1784,12 @@ public class DataTree {
             // clean database before switching to LOOKING. In this case
             // the currentZxidDigest will be the zxid of last epoch and
             // it's smaller than the zxid of the snapshot file.
-            //
             // It's safe to reset the targetZxidDigest to null and start
             // to compare digest when replaying the first txn, since it's
-            // a non fuzzy snapshot.
+            // a non fuzzy（模糊的） snapshot.
+            // 在朝代更新时，使用新朝代+0作为snapshot文件名，摘要则是记录的上一个朝代最后的事务id，
+            // 实际上事务未增加，只是朝代增加了，当该snapshot为最新的snapshot时，文件有效可以正常参与后续比较
+            // 否则，该snapshot无效
             if (digestFromLoadedSnapshot != null && digestFromLoadedSnapshot.zxid < startZxidOfSnapshot) {
                 LOG.info("The zxid of snapshot digest 0x{} is smaller "
                         + "than the known snapshot highest zxid, the snapshot "
@@ -1780,7 +1810,7 @@ public class DataTree {
     /**
      * Compares the actual tree's digest with that in the snapshot.
      * Resets digestFromLoadedSnapshot after comparision.
-     *
+     * // 比较加载节点的摘要和读取的摘要
      * @param zxid zxid
      */
     public void compareSnapshotDigests(long zxid) {
@@ -1923,15 +1953,19 @@ public class DataTree {
         }
 
         public void deserialize(InputArchive ia) throws IOException {
+            // 读取事务id
             zxid = ia.readLong("zxid");
+            // 读取摘要版本
             digestVersion = ia.readInt("digestVersion");
             // the old version is using hex string as the digest
             if (digestVersion < 2) {
+                // 读取摘要，低版本为16进制
                 String d = ia.readString("digest");
                 if (d != null) {
                     digest = Long.parseLong(d, 16);
                 }
             } else {
+                // 读取摘要
                 digest = ia.readLong("digest");
             }
         }

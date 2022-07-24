@@ -90,6 +90,7 @@ public class NodeHashMapImpl implements NodeHashMap {
 
     @Override
     public void preChange(String path, DataNode node) {
+        // 如果节点不在/zookeeper/下，则删除节点的digest（hash -= digest;）
         removeDigest(path, node);
     }
 

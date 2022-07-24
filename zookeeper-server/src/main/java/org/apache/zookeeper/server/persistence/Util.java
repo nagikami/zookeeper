@@ -156,12 +156,14 @@ public class Util {
      */
     public static byte[] readTxnBytes(InputArchive ia) throws IOException {
         try {
+            // 读取事务entry（字节数n(int) + n * 字节）
             byte[] bytes = ia.readBuffer("txtEntry");
             // Since we preallocate, we define EOF to be an
-            // empty transaction
+            // empty transaction 事务节点为空，返回
             if (bytes.length == 0) {
                 return bytes;
             }
+            // 校验事务entry结束标志（以B结尾）
             if (ia.readByte("EOF") != 'B') {
                 LOG.error("Last transaction was partial.");
                 return null;

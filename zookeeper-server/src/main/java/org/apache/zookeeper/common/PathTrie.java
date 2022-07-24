@@ -197,7 +197,7 @@
 
      /**
       * Add a path to the path trie. All paths are relative to the root node.
-      *
+      * 添加路径到目录树
       * @param path the path to add to the trie
       */
      public void addPath(final String path) {
@@ -208,17 +208,22 @@
          }
          final String[] pathComponents = split(path);
 
+         // 写锁，只允许有一个写
          writeLock.lock();
          try {
              TrieNode parent = rootNode;
+             // 根据路径从上到下遍历目录树，如果缺少对应层级的节点则创建
              for (final String part : pathComponents) {
                  TrieNode child = parent.getChild(part);
+                 // 节点不存在，创建节点
                  if (child == null) {
                      child = new TrieNode(parent, part);
                      parent.addChild(part, child);
                  }
+                 // 切换到下一个层级
                  parent = child;
              }
+             // 标识叶子节点
              parent.setProperty(true);
          } finally {
              writeLock.unlock();

@@ -251,12 +251,16 @@ public class FileTxnSnapLog {
      */
     public long restore(DataTree dt, Map<Long, Integer> sessions, PlayBackListener listener) throws IOException {
         long snapLoadingStartTime = Time.currentElapsedTime();
-        // 反序列化snapshot
+        // 加载snapshot（保存了某个时间点的内存数据），从最近的100个snapshot找到最近的一个有效文件加载数据，
+        // 恢复到最近的有效状态，返回加载的snapshot对应的最后事务日志id
         long deserializeResult = snapLog.deserialize(dt, sessions);
+        // 采集快照加载耗时指标
         ServerMetrics.getMetrics().STARTUP_SNAP_LOAD_TIME.add(Time.currentElapsedTime() - snapLoadingStartTime);
+        // 加载事务日志
         FileTxnLog txnLog = new FileTxnLog(dataDir);
         boolean trustEmptyDB;
         File initFile = new File(dataDir.getParent(), "initialize");
+        // 若数据库初始化标识文件存在则删除
         if (Files.deleteIfExists(initFile.toPath())) {
             LOG.info("Initialize file found, an empty database will not block voting participation");
             trustEmptyDB = true;
@@ -264,12 +268,14 @@ public class FileTxnSnapLog {
             trustEmptyDB = autoCreateDB;
         }
 
+        //数据加载完成后执行收尾操作（匿名类实现接口）
         RestoreFinalizer finalizer = () -> {
+            // 从事务日志加载snapshot之后的日志，根据日志重放操作恢复数据
             long highestZxid = fastForwardFromEdits(dt, sessions, listener);
             // The snapshotZxidDigest will reset after replaying the txn of the
             // zxid in the snapshotZxidDigest, if it's not reset to null after
             // restoring, it means either there are not enough txns to cover that
-            // zxid or that txn is missing
+            // zxid or that txn is missing 如果摘要未更新（没有事务日志回放），告警
             DataTree.ZxidDigest snapshotZxidDigest = dt.getDigestFromLoadedSnapshot();
             if (snapshotZxidDigest != null) {
                 LOG.warn(
@@ -281,9 +287,11 @@ public class FileTxnSnapLog {
             return highestZxid;
         };
 
+        // 未加载到有效snapshot，初始化空database
         if (-1L == deserializeResult) {
             /* this means that we couldn't find any snapshot, so we need to
              * initialize an empty database (reported in ZOOKEEPER-2325) */
+            // 存在事务日志，如果是升级则正常，否则报异常，因为正常启动只要有事务日志，就一定会有一个snapshot
             if (txnLog.getLastLoggedZxid() != -1) {
                 // ZOOKEEPER-3056: provides an escape hatch for users upgrading
                 // from old versions of zookeeper (3.4.x, pre 3.5.3).
@@ -295,9 +303,11 @@ public class FileTxnSnapLog {
                 }
             }
 
+            // 初始化空database
             if (trustEmptyDB) {
                 /* TODO: (br33d) we should either put a ConcurrentHashMap on restore()
                  *       or use Map on save() */
+                // 保存快照（空database）
                 save(dt, (ConcurrentHashMap<Long, Integer>) sessions, false);
 
                 /* return a zxid of 0, since we know the database is empty */
@@ -317,6 +327,7 @@ public class FileTxnSnapLog {
      * This function will fast forward the server database to have the latest
      * transactions in it.  This is the same as restore, but only reads from
      * the transaction logs and not restores from a snapshot.
+     * 从事务日志加载snapshot之后的日志，根据日志重放操作恢复数据
      * @param dt the datatree to write transactions to.
      * @param sessions the sessions to be restored.
      * @param listener the playback listener to run on the
@@ -328,6 +339,7 @@ public class FileTxnSnapLog {
         DataTree dt,
         Map<Long, Integer> sessions,
         PlayBackListener listener) throws IOException {
+        // 获取指向snapshot下一个事务节点的迭代器
         TxnIterator itr = txnLog.read(dt.lastProcessedZxid + 1);
         long highestZxid = dt.lastProcessedZxid;
         TxnHeader hdr;
@@ -338,18 +350,24 @@ public class FileTxnSnapLog {
                 // iterator points to
                 // the first valid txn when initialized
                 hdr = itr.getHeader();
+                // 事务节点文件头为空（snapshot为最新的状态）
                 if (hdr == null) {
                     //empty logs
                     return dt.lastProcessedZxid;
                 }
+                // 重放的事务节点id必须递增，否则记录error日志
                 if (hdr.getZxid() < highestZxid && highestZxid != 0) {
                     LOG.error("{}(highestZxid) > {}(next log) for type {}", highestZxid, hdr.getZxid(), hdr.getType());
                 } else {
+                    // 更新当前事务id
                     highestZxid = hdr.getZxid();
                 }
                 try {
+                    // 重放事务节点保存的事务记录，更新session和lastProcessedZxid
                     processTransaction(hdr, dt, sessions, itr.getTxn());
+                    // 比较摘要
                     dt.compareDigest(hdr, itr.getTxn(), itr.getDigest());
+                    // 回放的事务节点计数
                     txnLoaded++;
                 } catch (KeeperException.NoNodeException e) {
                     throw new IOException("Failed to process transaction type: "
@@ -369,11 +387,13 @@ public class FileTxnSnapLog {
             }
         }
 
+        // 上报事务日志回放耗时指标
         long loadTime = Time.currentElapsedTime() - startTime;
         LOG.info("{} txns loaded in {} ms", txnLoaded, loadTime);
         ServerMetrics.getMetrics().STARTUP_TXNS_LOADED.add(txnLoaded);
         ServerMetrics.getMetrics().STARTUP_TXNS_LOAD_TIME.add(loadTime);
 
+        // 返回最新的数据对应的事务id
         return highestZxid;
     }
 
@@ -405,6 +425,7 @@ public class FileTxnSnapLog {
 
     /**
      * process the transaction on the datatree
+     * 加载日志记录
      * @param hdr the hdr of the transaction
      * @param dt the datatree to apply transaction to
      * @param sessions the sessions to be restored
@@ -416,8 +437,10 @@ public class FileTxnSnapLog {
         Map<Long, Integer> sessions,
         Record txn) throws KeeperException.NoNodeException {
         ProcessTxnResult rc;
+        // 根据操作类型重放事务日志
         switch (hdr.getType()) {
         case OpCode.createSession:
+            // 添加session（客户端id，过期时间）
             sessions.put(hdr.getClientId(), ((CreateSessionTxn) txn).getTimeOut());
             if (LOG.isTraceEnabled()) {
                 ZooTrace.logTraceMessage(
@@ -427,6 +450,7 @@ public class FileTxnSnapLog {
                     + " with timeout: " + ((CreateSessionTxn) txn).getTimeOut());
             }
             // give dataTree a chance to sync its lastProcessedZxid
+            // 重放事务日志，更新DataTree数据和lastProcessedZxid
             rc = dt.processTxn(hdr, txn);
             break;
         case OpCode.closeSession:
@@ -468,7 +492,7 @@ public class FileTxnSnapLog {
      * @param dataTree the datatree to be serialized onto disk
      * @param sessionsWithTimeouts the session timeouts to be
      * serialized onto disk
-     * @param syncSnap sync the snapshot immediately after write
+     * @param syncSnap sync the snapshot immediately after write 是否立刻从page cache刷新到磁盘
      * @throws IOException
      */
     public void save(
@@ -479,6 +503,7 @@ public class FileTxnSnapLog {
         File snapshotFile = new File(snapDir, Util.makeSnapshotName(lastZxid));
         LOG.info("Snapshotting: 0x{} to {}", Long.toHexString(lastZxid), snapshotFile);
         try {
+            // 保存snapshot
             snapLog.serialize(dataTree, sessionsWithTimeouts, snapshotFile, syncSnap);
         } catch (IOException e) {
             if (snapshotFile.length() == 0) {

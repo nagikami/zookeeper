@@ -120,7 +120,7 @@ public class SnapStream {
      * Return the OutputStream based on predefined stream mode.
      *
      * @param file the file the OutputStream writes to
-     * @param fsync sync the file immediately after write
+     * @param fsync sync the file immediately after write 是否立刻从page cache刷新到磁盘
      * @return the specific OutputStream
      * @throws IOException
      */
@@ -149,17 +149,21 @@ public class SnapStream {
      */
     public static void sealStream(CheckedOutputStream os, OutputArchive oa) throws IOException {
         long val = os.getChecksum().getValue();
+        // 写入校验标识
         oa.writeLong(val, "val");
+        // 写入结束标识
         oa.writeString("/", "path");
     }
 
     /**
-     * Verify the integrity of the seal, only CheckedInputStream will verify
+     * Verify the integrity of the seal（密封）, only CheckedInputStream will verify
      * the checkSum of the content.
-     *
+     * 校验完整性
      */
     static void checkSealIntegrity(CheckedInputStream is, InputArchive ia) throws IOException {
+        // 获取输入流的校验和
         long checkSum = is.getChecksum().getValue();
+        // 读取snapshot记录的校验和
         long val = ia.readLong("val");
         ia.readString("path");  // Read and ignore "/" written by SealStream.
         if (val != checkSum) {

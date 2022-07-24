@@ -155,6 +155,7 @@ public class ReferenceCountedACLCache {
         synchronized (this) {
             clonedLongKeyMap = new HashMap<>(longKeyMap);
         }
+        // 写入ACL列表索引和ACL列表映射表
         oa.writeInt(clonedLongKeyMap.size(), "map");
         for (Map.Entry<Long, List<ACL>> val : clonedLongKeyMap.entrySet()) {
             oa.writeLong(val.getKey(), "long");

@@ -67,13 +67,13 @@ public class FileSnap implements SnapShot {
 
     /**
      * deserialize a data tree from the most recent snapshot
-     * 从最近的100个snapshot反序列化到内存为DataTree结构
+     * 从最近的100个snapshot找到最近的一个有效文件反序列化到内存为DataTree结构，加载节点数据和session、ACL信息
      * @return the zxid of the snapshot
      */
     public long deserialize(DataTree dt, Map<Long, Integer> sessions) throws IOException {
         // we run through 100 snapshots (not all of them)
         // if we cannot get it running within 100 snapshots
-        // we should  give up
+        // we should  give up 获取降序排列的文件列表
         List<File> snapList = findNValidSnapshots(100);
         if (snapList.size() == 0) {
             return -1L;
@@ -90,7 +90,9 @@ public class FileSnap implements SnapShot {
                 // 获取输入归档（聚合了实现DataInput接口并聚合了InputStream作为数据源的流装饰类
                 // DataInputStream）
                 InputArchive ia = BinaryInputArchive.getArchive(snapIS);
+                // 加载session、ACL、节点数据
                 deserialize(dt, sessions, ia);
+                // 检查数据完整性
                 SnapStream.checkSealIntegrity(snapIS, ia);
 
                 // Digest feature was added after the CRC to make it backward
@@ -104,6 +106,7 @@ public class FileSnap implements SnapShot {
                 }
 
                 foundValid = true;
+                // 找到最近的一个有效snapshot，跳出循环
                 break;
             } catch (IOException e) {
                 LOG.warn("problem reading snap file {}", snap, e);
@@ -112,6 +115,7 @@ public class FileSnap implements SnapShot {
         if (!foundValid) {
             throw new IOException("Not able to find valid snapshots in " + snapDir);
         }
+        // 加载最后处理的事务id
         dt.lastProcessedZxid = snapZxid;
         lastSnapshotInfo = new SnapshotInfo(dt.lastProcessedZxid, snap.lastModified() / 1000);
 
@@ -233,11 +237,13 @@ public class FileSnap implements SnapShot {
             throw new IllegalStateException("Snapshot's not open for writing: uninitialized header");
         }
         header.serialize(oa, "fileheader");
+        // 序列化session和datatree
         SerializeUtils.serializeSnapshot(dt, oa, sessions);
     }
 
     /**
      * serialize the datatree and session into the file snapshot
+     * 序列化datatree和session到snapshot文件
      * @param dt the datatree to be serialized
      * @param sessions the sessions to be serialized
      * @param snapShot the file to store snapshot into
@@ -252,7 +258,9 @@ public class FileSnap implements SnapShot {
             try (CheckedOutputStream snapOS = SnapStream.getOutputStream(snapShot, fsync)) {
                 OutputArchive oa = BinaryOutputArchive.getArchive(snapOS);
                 FileHeader header = new FileHeader(SNAP_MAGIC, VERSION, dbId);
+                // 序列化datatree和session到snapshot文件
                 serialize(dt, sessions, oa, header);
+                // 写入校验标识和结束标识
                 SnapStream.sealStream(snapOS, oa);
 
                 // Digest feature was added after the CRC to make it backward
@@ -261,10 +269,12 @@ public class FileSnap implements SnapShot {
                 //
                 // To check the intact, after adding digest we added another
                 // CRC check.
+                // 序列化事务id和datatree摘要
                 if (dt.serializeZxidDigest(oa)) {
                     SnapStream.sealStream(snapOS, oa);
                 }
 
+                // 更新最新的snapshot信息（事务id和文件修改时间）
                 lastSnapshotInfo = new SnapshotInfo(
                     Util.getZxidFromName(snapShot.getName(), SNAPSHOT_FILE_PREFIX),
                     snapShot.lastModified() / 1000);
