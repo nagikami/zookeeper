@@ -1140,6 +1140,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
         if (!getView().containsKey(myid)) {
             throw new RuntimeException("My id " + myid + " not in the peer list");
         }
+        // 加载snapshot和回放事务日志，验证朝代信息
         loadDataBase();
         startServerCnxnFactory();
         try {
@@ -1154,17 +1155,20 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
 
     private void loadDataBase() {
         try {
+            // 加载最近一个有效snapshot，回放事务日志
             zkDb.loadDataBase();
 
-            // load the epochs
+            // load the epochs 加载朝代（zxid前32位）
             long lastProcessedZxid = zkDb.getDataTree().lastProcessedZxid;
             long epochOfZxid = ZxidUtils.getEpochFromZxid(lastProcessedZxid);
             try {
+                // 从硬盘读取朝代信息
                 currentEpoch = readLongFromFile(CURRENT_EPOCH_FILENAME);
             } catch (FileNotFoundException e) {
                 // pick a reasonable epoch number
                 // this should only happen once when moving to a
                 // new code version
+                // 读取失败，更新为事务日志加载的朝代
                 currentEpoch = epochOfZxid;
                 LOG.info(
                     "{} not found! Creating with a reasonable default of {}. "
@@ -1173,8 +1177,10 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                     currentEpoch);
                 writeLongToFile(CURRENT_EPOCH_FILENAME, currentEpoch);
             }
+            // 事务日志加载的朝代大于保存在正式文件的朝代
             if (epochOfZxid > currentEpoch) {
                 // acceptedEpoch.tmp file in snapshot directory
+                // 读取临时文件中的朝代，并更新到正式文件中
                 File currentTmp = new File(getTxnFactory().getSnapDir(),
                     CURRENT_EPOCH_FILENAME + AtomicFileOutputStream.TMP_EXTENSION);
                 if (currentTmp.exists()) {
@@ -1188,11 +1194,13 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                 }
             }
             try {
+                // 读取从quorum接收的朝代
                 acceptedEpoch = readLongFromFile(ACCEPTED_EPOCH_FILENAME);
             } catch (FileNotFoundException e) {
                 // pick a reasonable epoch number
                 // this should only happen once when moving to a
                 // new code version
+                // 读取失败，更新为事务日志加载的朝代
                 acceptedEpoch = epochOfZxid;
                 LOG.info(
                     "{} not found! Creating with a reasonable default of {}. "
@@ -1201,6 +1209,8 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                     acceptedEpoch);
                 writeLongToFile(ACCEPTED_EPOCH_FILENAME, acceptedEpoch);
             }
+            // 从quorum接收的朝代小于当前朝代，从database加载的集群状态信息有问题
+            // （接收到的朝代应该大于等于当前节点的朝代），抛出启动异常
             if (acceptedEpoch < currentEpoch) {
                 throw new IOException("The accepted epoch, "
                                       + ZxidUtils.zxidToString(acceptedEpoch)
@@ -2092,6 +2102,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
 
     private void startServerCnxnFactory() {
         if (cnxnFactory != null) {
+            // 默认使用NIO
             cnxnFactory.start();
         }
         if (secureCnxnFactory != null) {

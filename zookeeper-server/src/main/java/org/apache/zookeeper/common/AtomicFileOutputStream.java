@@ -42,6 +42,7 @@ import org.slf4j.LoggerFactory;
  * <b>NOTE</b>: on Windows platforms, it will not atomically replace the target
  * file - instead the target file is deleted before this one is moved into
  * place.
+ * 当流关闭时以tmp为扩展名同步刷新到硬盘，刷新完成后替换对应的文件（直接重命名，失败则先删除再重命名）
  */
 public class AtomicFileOutputStream extends FilterOutputStream {
 
@@ -76,6 +77,7 @@ public class AtomicFileOutputStream extends FilterOutputStream {
     public void close() throws IOException {
         boolean triedToClose = false, success = false;
         try {
+            // 刷新到硬盘
             flush();
             ((FileOutputStream) out).getFD().sync();
 
@@ -84,9 +86,11 @@ public class AtomicFileOutputStream extends FilterOutputStream {
             success = true;
         } finally {
             if (success) {
+                // 使用临时文件替换存在的文件（重命名）
                 boolean renamed = tmpFile.renameTo(origFile);
                 if (!renamed) {
                     // On windows, renameTo does not replace.
+                    // 替换失败则先删除，再重名名
                     if (!origFile.delete() || !tmpFile.renameTo(origFile)) {
                         throw new IOException("Could not rename temporary file " + tmpFile + " to " + origFile);
                     }
