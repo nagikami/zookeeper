@@ -234,14 +234,17 @@ public class FastLeaderElection implements Election {
                 while (!stop) {
                     // Sleeps on receive
                     try {
+                        // 从消息接收队列获取响应（消息）
                         response = manager.pollRecvQueue(3000, TimeUnit.MILLISECONDS);
                         if (response == null) {
                             continue;
                         }
 
+                        // 获取消息大小
                         final int capacity = response.buffer.capacity();
 
                         // The current protocol and two previous generations all send at least 28 bytes
+                        // 消息至少为28字节
                         if (capacity < 28) {
                             LOG.error("Got a short response from server {}: {}", response.sid, capacity);
                             continue;
@@ -255,14 +258,20 @@ public class FastLeaderElection implements Election {
                         // this is the backwardCompatibility mode for no version information
                         boolean backCompatibility40 = (capacity == 40);
 
+                        // buffer标识恢复为初始状态，position置为0，limit置为capacity，mark丢弃置为-1
                         response.buffer.clear();
 
                         // Instantiate Notification and set its attributes
+                        // 实例化通知
                         Notification n = new Notification();
 
+                        // 发送方服务器状态
                         int rstate = response.buffer.getInt();
+                        // 读取leader服务器id
                         long rleader = response.buffer.getLong();
+                        // 读取消息发送服务器事务id
                         long rzxid = response.buffer.getLong();
+                        // 读取选举朝代
                         long relectionEpoch = response.buffer.getLong();
                         long rpeerepoch;
 
@@ -271,23 +280,27 @@ public class FastLeaderElection implements Election {
 
                         try {
                             if (!backCompatibility28) {
+                                // 读取消息发送服务器朝代
                                 rpeerepoch = response.buffer.getLong();
                                 if (!backCompatibility40) {
                                     /*
                                      * Version added in 3.4.6
                                      */
-
+                                    // 读取通知版本
                                     version = response.buffer.getInt();
                                 } else {
                                     LOG.info("Backward compatibility mode (36 bits), server id: {}", response.sid);
                                 }
                             } else {
                                 LOG.info("Backward compatibility mode (28 bits), server id: {}", response.sid);
+                                // 从事务id获取朝代
                                 rpeerepoch = ZxidUtils.getEpochFromZxid(rzxid);
                             }
 
                             // check if we have a version that includes config. If so extract config info from message.
+                            // 版本大于1，消息包含配置数据
                             if (version > 0x1) {
+                                // 读取配置数据字节数
                                 int configLength = response.buffer.getInt();
 
                                 // we want to avoid errors caused by the allocation of a byte array with negative length
@@ -297,22 +310,29 @@ public class FastLeaderElection implements Election {
                                                                         response.sid, capacity, version, configLength));
                                 }
 
+                                // 读取配置数据
                                 byte[] b = new byte[configLength];
                                 response.buffer.get(b);
 
                                 synchronized (self) {
                                     try {
+                                        // 校验接收到的quorum配置
                                         rqv = self.configFromString(new String(b, UTF_8));
+                                        // 获取当前服务器的quorum配置
                                         QuorumVerifier curQV = self.getQuorumVerifier();
+                                        // 接收到的quorum版本比自己的版本高
                                         if (rqv.getVersion() > curQV.getVersion()) {
                                             LOG.info("{} Received version: {} my version: {}",
                                                      self.getId(),
                                                      Long.toHexString(rqv.getVersion()),
                                                      Long.toHexString(self.getQuorumVerifier().getVersion()));
+                                            // 当前服务器状态为LOOKING
                                             if (self.getPeerState() == ServerState.LOOKING) {
                                                 LOG.debug("Invoking processReconfig(), state: {}", self.getServerState());
+                                                // 更新配置到接收到的高版本配置
                                                 self.processReconfig(rqv, null, null, false);
                                                 if (!rqv.equals(curQV)) {
+                                                    // 配置升级失败，重启选举
                                                     LOG.info("restarting leader election");
                                                     self.shuttingDownLE = true;
                                                     self.getElectionAlg().shutdown();
@@ -338,10 +358,13 @@ public class FastLeaderElection implements Election {
                         /*
                          * If it is from a non-voting server (such as an observer or
                          * a non-voting follower), respond right away.
+                         * 如果消息来非quorum节点（例如观察者），快速响应
                          */
                         if (!validVoter(response.sid)) {
+                            // 获取当前投票信息
                             Vote current = self.getCurrentVote();
                             QuorumVerifier qv = self.getQuorumVerifier();
+                            // 构造通知消息
                             ToSend notmsg = new ToSend(
                                 ToSend.mType.notification,
                                 current.getId(),
@@ -352,12 +375,13 @@ public class FastLeaderElection implements Election {
                                 current.getPeerEpoch(),
                                 qv.toString().getBytes(UTF_8));
 
+                            // 添加消息到sendqueue，等待被workerSender添加到对应的消息推送队列
                             sendqueue.offer(notmsg);
                         } else {
                             // Receive new message
                             LOG.debug("Receive new notification message. My id = {}", self.getId());
 
-                            // State of peer that sent this message
+                            // State of peer that sent this message 获取消息发送方服务器状态
                             QuorumPeer.ServerState ackstate = QuorumPeer.ServerState.LOOKING;
                             switch (rstate) {
                             case 0:
@@ -376,6 +400,7 @@ public class FastLeaderElection implements Election {
                                 continue;
                             }
 
+                            // 为通知赋值
                             n.leader = rleader;
                             n.zxid = rzxid;
                             n.electionEpoch = relectionEpoch;
@@ -402,15 +427,18 @@ public class FastLeaderElection implements Election {
 
                             /*
                              * If this server is looking, then send proposed leader
+                             * 如果当前服务器状态为LOOKING，发送选举提议
                              */
 
                             if (self.getPeerState() == QuorumPeer.ServerState.LOOKING) {
+                                // 添加通知到接收队列
                                 recvqueue.offer(n);
 
                                 /*
                                  * Send a notification back if the peer that sent this
                                  * message is also looking and its logical clock is
                                  * lagging behind.
+                                 * 如果发送方状态也是LOOKING且选举朝代低于自己，构造新通知发送回去
                                  */
                                 if ((ackstate == QuorumPeer.ServerState.LOOKING)
                                     && (n.electionEpoch < logicalclock.get())) {
@@ -431,6 +459,8 @@ public class FastLeaderElection implements Election {
                                 /*
                                  * If this server is not looking, but the one that sent the ack
                                  * is looking, then send back what it believes to be the leader.
+                                 * 如果当前服务器状态不是LOOKING，但发送方是LOOKING，
+                                 * 将自己记录的leader发送给它
                                  */
                                 Vote current = self.getCurrentVote();
                                 if (ackstate == QuorumPeer.ServerState.LOOKING) {
@@ -439,6 +469,7 @@ public class FastLeaderElection implements Election {
                                             self.leader.setLeadingVoteSet(leadingVoteSet);
                                             leadingVoteSet = null;
                                         }
+                                        // 报告LOOKING状态的服务器id
                                         self.leader.reportLookingSid(response.sid);
                                     }
 
@@ -497,7 +528,7 @@ public class FastLeaderElection implements Election {
                         if (m == null) {
                             continue;
                         }
-
+                        // 发送消息（添加消息到接收方的消息推送队列）
                         process(m);
                     } catch (InterruptedException e) {
                         break;
@@ -512,8 +543,10 @@ public class FastLeaderElection implements Election {
              * @param m     message to send
              */
             void process(ToSend m) {
+                // 构造消息
                 ByteBuffer requestBuffer = buildMsg(m.state.ordinal(), m.leader, m.zxid, m.electionEpoch, m.peerEpoch, m.configData);
 
+                // 发送消息（添加消息到接收方的消息推送队列）
                 manager.toSend(m.sid, requestBuffer);
 
             }
@@ -527,16 +560,17 @@ public class FastLeaderElection implements Election {
 
         /**
          * Constructor of class Messenger.
-         *
+         * 信使（用于接发消息）
          * @param manager   Connection manager
          */
         Messenger(QuorumCnxManager manager) {
-
+            // 创建消息发送线程，从sendqueue获取消息并添加消息到接收方的消息推送队列）
             this.ws = new WorkerSender(manager);
 
             this.wsThread = new Thread(this.ws, "WorkerSender[myid=" + self.getId() + "]");
             this.wsThread.setDaemon(true);
 
+            // 创建响应接收线程·
             this.wr = new WorkerReceiver(manager);
 
             this.wrThread = new Thread(this.wr, "WorkerReceiver[myid=" + self.getId() + "]");
@@ -602,14 +636,23 @@ public class FastLeaderElection implements Election {
          * Building notification packet to send
          */
 
+        // buffer置为初始状态
         requestBuffer.clear();
+        // 写入服务器状态
         requestBuffer.putInt(state);
+        // 写入服务器记录的当前leader
         requestBuffer.putLong(leader);
+        // 写入服务器的最后事务id
         requestBuffer.putLong(zxid);
+        // 写入服务器记录的选举朝代
         requestBuffer.putLong(electionEpoch);
+        // 写入服务器的朝代
         requestBuffer.putLong(epoch);
+        // 写入通知版本
         requestBuffer.putInt(Notification.CURRENTVERSION);
+        // 写入配置数据长度
         requestBuffer.putInt(configData.length);
+        // 写入配置数据
         requestBuffer.put(configData);
 
         return requestBuffer;
@@ -627,6 +670,7 @@ public class FastLeaderElection implements Election {
     public FastLeaderElection(QuorumPeer self, QuorumCnxManager manager) {
         this.stop = false;
         this.manager = manager;
+        //
         starter(self, manager);
     }
 
@@ -645,7 +689,9 @@ public class FastLeaderElection implements Election {
         proposedLeader = -1;
         proposedZxid = -1;
 
+        // 消息发送队列
         sendqueue = new LinkedBlockingQueue<ToSend>();
+        // 消息接收队列
         recvqueue = new LinkedBlockingQueue<Notification>();
         this.messenger = new Messenger(manager);
     }

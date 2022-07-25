@@ -62,12 +62,13 @@ public class WorkerService {
      *                              If 0, scheduled work is run immediately by
      *                              the calling thread.
      * @param useAssignableThreads  whether the worker threads should be
-     *                              individually assignable or not
+     *                              individually assignable or not 是否每个线程一个线程池
      */
     public WorkerService(String name, int numThreads, boolean useAssignableThreads) {
         this.threadNamePrefix = (name == null ? "" : name) + "Thread";
         this.numWorkerThreads = numThreads;
         this.threadsAreAssignable = useAssignableThreads;
+        // 初始化线程池
         start();
     }
 

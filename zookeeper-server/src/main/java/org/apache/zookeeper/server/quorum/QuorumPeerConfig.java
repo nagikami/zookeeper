@@ -234,7 +234,7 @@ public class QuorumPeerConfig {
             } catch (IllegalArgumentException e) {
                 throw new ConfigException("Error processing " + dynamicConfigFileStr, e);
             }
-            // 处理下一动态配置文件
+            // 处理下一个动态配置文件
             File nextDynamicConfigFile = new File(configFileStr + nextDynamicConfigFileSuffix);
             if (nextDynamicConfigFile.exists()) {
                 try {

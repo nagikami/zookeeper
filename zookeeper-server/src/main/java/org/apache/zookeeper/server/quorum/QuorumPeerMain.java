@@ -180,6 +180,7 @@ public class QuorumPeerMain {
             if (config.getClientPortAddress() != null) {
                 // 默认使用NIO
                 cnxnFactory = ServerCnxnFactory.createFactory();
+                // 配置客户端监听server
                 cnxnFactory.configure(config.getClientPortAddress(), config.getMaxClientCnxns(), config.getClientPortListenBacklog(), false);
             }
 

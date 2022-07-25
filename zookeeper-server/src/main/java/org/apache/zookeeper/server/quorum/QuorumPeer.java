@@ -1142,14 +1142,19 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
         }
         // 加载snapshot和回放事务日志，验证朝代信息
         loadDataBase();
+        // 启动客户端监听server（默认2181）处理线程
         startServerCnxnFactory();
         try {
+            // 启动admin server（端口默认8080）用于执行命令，默认Jetty，
+            // 否则Dummy（do nothing，表示不启动server）
             adminServer.start();
         } catch (AdminServerException e) {
             LOG.warn("Problem starting AdminServer", e);
         }
+        // 开启对广播地址（默认2888）和快速选举地址（默认3888）的监听，启动leader选举
         startLeaderElection();
         startJvmPauseMonitor();
+        // 启动线程
         super.start();
     }
 
@@ -1231,7 +1236,9 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
     }
     public synchronized void startLeaderElection() {
         try {
+            // 节点状态为LOOKING
             if (getPeerState() == ServerState.LOOKING) {
+                // 创建投票，投票信息包含节点id，最后事务id，当前朝代
                 currentVote = new Vote(myid, getLastLoggedZxid(), getCurrentEpoch());
             }
         } catch (IOException e) {
@@ -1240,6 +1247,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
             throw re;
         }
 
+        // 根据选举类型，初始化选举算法，并初始化quorum节点连接，执行选举
         this.electionAlg = createElectionAlgorithm(electionType);
     }
 
@@ -1360,15 +1368,20 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
         case 2:
             throw new UnsupportedOperationException("Election Algorithm 2 is not supported.");
         case 3:
+            // 创建用于广播和选举的连接管理器
             QuorumCnxManager qcm = createCnxnManager();
             QuorumCnxManager oldQcm = qcmRef.getAndSet(qcm);
             if (oldQcm != null) {
                 LOG.warn("Clobbering already-set QuorumCnxManager (restarting leader election?)");
                 oldQcm.halt();
             }
+            // 获取连接监听器
             QuorumCnxManager.Listener listener = qcm.listener;
             if (listener != null) {
+                // 启动监听器，创建或复用和其他quorum服务器的连接，
+                // 为服务器绑定推送线程、接收线程和消息队列
                 listener.start();
+                // 快速选举
                 FastLeaderElection fle = new FastLeaderElection(this, qcm);
                 fle.start();
                 le = fle;
@@ -1838,6 +1851,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
     public QuorumVerifier configFromString(String s) throws IOException, ConfigException {
         Properties props = new Properties();
         props.load(new StringReader(s));
+        // 校验接收到的quorum配置
         return QuorumPeerConfig.parseDynamicConfig(props, electionType, false, false);
     }
 
