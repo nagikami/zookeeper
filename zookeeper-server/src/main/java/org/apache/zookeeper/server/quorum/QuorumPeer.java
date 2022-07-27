@@ -1151,7 +1151,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
         } catch (AdminServerException e) {
             LOG.warn("Problem starting AdminServer", e);
         }
-        // 开启对广播地址（默认2888）和快速选举地址（默认3888）的监听，启动leader选举
+        // 开启选举地址（默认3888）的监听，启动leader选举
         startLeaderElection();
         startJvmPauseMonitor();
         // 启动线程
@@ -1238,7 +1238,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
         try {
             // 节点状态为LOOKING
             if (getPeerState() == ServerState.LOOKING) {
-                // 创建投票，投票信息包含节点id，最后事务id，当前朝代
+                // 创建投票，投票信息包含节点id，最后事务id，服务器当前朝代
                 currentVote = new Vote(myid, getLastLoggedZxid(), getCurrentEpoch());
             }
         } catch (IOException e) {
@@ -1368,11 +1368,12 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
         case 2:
             throw new UnsupportedOperationException("Election Algorithm 2 is not supported.");
         case 3:
-            // 创建用于广播和选举的连接管理器
+            // 创建选举连接管理器
             QuorumCnxManager qcm = createCnxnManager();
             QuorumCnxManager oldQcm = qcmRef.getAndSet(qcm);
             if (oldQcm != null) {
                 LOG.warn("Clobbering already-set QuorumCnxManager (restarting leader election?)");
+                // 停止旧连接管理器
                 oldQcm.halt();
             }
             // 获取连接监听器
@@ -1428,10 +1429,12 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
 
     @Override
     public void run() {
+        // 更新线程名，plain为选举监听地址
         updateThreadName();
 
         LOG.debug("Starting quorum peer");
         try {
+            // 注册JMX
             jmxQuorumBean = new QuorumBean(this);
             MBeanRegistry.getInstance().register(jmxQuorumBean, null);
             for (QuorumServer s : getView().values()) {
@@ -1464,15 +1467,18 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
              * Main loop
              */
             while (running) {
+                // 记录服务不可用（服务在启动）时间
                 if (unavailableStartTime == 0) {
                     unavailableStartTime = Time.currentElapsedTime();
                 }
 
                 switch (getPeerState()) {
+                    // 服务器状态为LOOKING
                 case LOOKING:
                     LOG.info("LOOKING");
                     ServerMetrics.getMetrics().LOOKING_COUNT.add(1);
 
+                    // 开启只读模式
                     if (Boolean.getBoolean("readonlymode.enabled")) {
                         LOG.info("Attempting to start ReadOnlyZooKeeperServer");
 
@@ -1485,6 +1491,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                         // Thread is used here because otherwise it would require
                         // changes in each of election strategy classes which is
                         // unnecessary code coupling.
+                        // 等待一段时间，如果状态仍为LOOKING则以只读模式启动
                         Thread roZkMgr = new Thread() {
                             public void run() {
                                 try {
@@ -1501,12 +1508,16 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                             }
                         };
                         try {
+                            // 启动服务
                             roZkMgr.start();
+                            // 关闭配置变更
                             reconfigFlagClear();
                             if (shuttingDownLE) {
                                 shuttingDownLE = false;
+                                // 开始leader选举
                                 startLeaderElection();
                             }
+                            // 保存当前投票信息
                             setCurrentVote(makeLEStrategy().lookForLeader());
                         } catch (Exception e) {
                             LOG.warn("Unexpected exception", e);
@@ -1519,11 +1530,14 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                         }
                     } else {
                         try {
+                            // 关闭配置更新
                             reconfigFlagClear();
                             if (shuttingDownLE) {
                                 shuttingDownLE = false;
+                                // 开启leader选举
                                 startLeaderElection();
                             }
+                            // 保存当前投票信息
                             setCurrentVote(makeLEStrategy().lookForLeader());
                         } catch (Exception e) {
                             LOG.warn("Unexpected exception", e);

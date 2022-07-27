@@ -862,8 +862,11 @@ public class QuorumCnxManager {
 
     /**
      * Check if all queues are empty, indicating that all messages have been delivered.
+     * correct:
+     *      Check if any queues are empty, indicating that messages have been started to be delivered.
      */
     boolean haveDelivered() {
+        // todo 与注释描述不符，此段代码表示任意一个队列为空而不是所有队列都为空
         for (BlockingQueue<ByteBuffer> queue : queueSendMap.values()) {
             final int queueSize = queue.size();
             LOG.debug("Queue size: {}", queueSize);
@@ -1210,6 +1213,7 @@ public class QuorumCnxManager {
                     socket = new ServerSocket();
                 }
 
+                // 在连接关闭处于TIME_WAIT状态时允许绑定监听地址
                 socket.setReuseAddress(true);
                 // 监听指定IP和端口（默认3888）
                 address = new InetSocketAddress(address.getHostString(), address.getPort());
