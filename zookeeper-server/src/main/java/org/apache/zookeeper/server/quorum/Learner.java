@@ -199,10 +199,13 @@ public class Learner {
     void writePacketNow(QuorumPacket pp, boolean flush) throws IOException {
         synchronized (leaderOs) {
             if (pp != null) {
+                // 向缓冲区写入数据包类型
                 messageTracker.trackSent(pp.getType());
+                // 写入数据包数据到包装的输出流
                 leaderOs.writeRecord(pp, "packet");
             }
             if (flush) {
+                // 将缓冲数据写入包装的输出流
                 bufferedOutput.flush();
             }
         }
@@ -269,6 +272,7 @@ public class Learner {
 
     /**
      * Returns the address of the node we think is the leader.
+     * 找到leader，并处理DNS
      */
     protected QuorumServer findLeader() {
         QuorumServer leaderServer = null;
@@ -277,7 +281,7 @@ public class Learner {
         for (QuorumServer s : self.getView().values()) {
             if (s.id == current.getId()) {
                 // Ensure we have the leader's correct IP address before
-                // attempting to connect.
+                // attempting to connect. 处理DNS
                 s.recreateSocketAddresses();
                 leaderServer = s;
                 break;
@@ -327,9 +331,11 @@ public class Learner {
         ExecutorService executor = Executors.newFixedThreadPool(addresses.size());
         CountDownLatch latch = new CountDownLatch(addresses.size());
         AtomicReference<Socket> socket = new AtomicReference<>(null);
+        // 异步创建连接，只会有一个连接创建成功（CAS + volatile）
         addresses.stream().map(address -> new LeaderConnector(address, socket, latch)).forEach(executor::submit);
 
         try {
+            // 等待连接创建完
             latch.await();
         } catch (InterruptedException e) {
             LOG.warn("Interrupted while trying to connect to Leader", e);
@@ -353,8 +359,10 @@ public class Learner {
 
         self.authLearner.authenticate(sock, hostname);
 
+        // 包装来自leader的输入流
         leaderIs = BinaryInputArchive.getArchive(new BufferedInputStream(sock.getInputStream()));
         bufferedOutput = new BufferedOutputStream(sock.getOutputStream());
+        // 包装发往leader的输入流
         leaderOs = BinaryOutputArchive.getArchive(bufferedOutput);
         if (asyncSending) {
             startSendingThread();
@@ -377,9 +385,11 @@ public class Learner {
         public void run() {
             try {
                 Thread.currentThread().setName("LeaderConnector-" + address);
+                // 和leader建立连接
                 Socket sock = connectToLeader();
 
                 if (sock != null && sock.isConnected()) {
+                    // 更新socket（存在多ip时会和其他线程竞争）
                     if (socket.compareAndSet(null, sock)) {
                         LOG.info("Successfully connected to leader, using address: {}", address);
                     } else {
@@ -396,6 +406,7 @@ public class Learner {
         }
 
         private Socket connectToLeader() throws IOException, X509Exception, InterruptedException {
+            // 创建socket设置默认超时时间
             Socket sock = createSocket();
 
             // leader connection timeout defaults to tickTime * initLimit
@@ -419,10 +430,12 @@ public class Learner {
                         throw new IOException("connectToLeader exceeded on retries.");
                     }
 
+                    // 建立连接
                     sockConnect(sock, address, Math.min(connectTimeout, remainingTimeout));
                     if (self.isSslQuorum()) {
                         ((SSLSocket) sock).startHandshake();
                     }
+                    // 设置TCP_NODELAY选项
                     sock.setTcpNoDelay(nodelay);
                     break;
                 } catch (IOException e) {
@@ -472,6 +485,7 @@ public class Learner {
         } else {
             sock = new Socket();
         }
+        // read()阻塞时间（空闲超时）
         sock.setSoTimeout(self.tickTime * self.initLimit);
         return sock;
     }
@@ -488,20 +502,27 @@ public class Learner {
          * Send follower info, including last zxid and sid
          */
         long lastLoggedZxid = self.getLastLoggedZxid();
+        // 创建quorum数据包记录，通过指定包数据的编码格式，避免TCP分包的粘包问题
         QuorumPacket qp = new QuorumPacket();
+        // 设置消息类型
         qp.setType(pktType);
         qp.setZxid(ZxidUtils.makeZxid(self.getAcceptedEpoch(), 0));
 
         /*
          * Add sid to payload
+         * 构造learner信息
          */
         LearnerInfo li = new LearnerInfo(self.getId(), 0x10000, self.getQuorumVerifier().getVersion());
         ByteArrayOutputStream bsid = new ByteArrayOutputStream();
         BinaryOutputArchive boa = BinaryOutputArchive.getArchive(bsid);
+        // 向字节数组写入learner信息
         boa.writeRecord(li, "LearnerInfo");
+        // 设置数据包数据为从字节数组读取的learner信息
         qp.setData(bsid.toByteArray());
 
+        // 发送数据包到leader
         writePacket(qp, true);
+        // 从leader读取一个数据包
         readPacket(qp);
         final long newEpoch = ZxidUtils.getEpochFromZxid(qp.getZxid());
         if (qp.getType() == Leader.LEADERINFO) {

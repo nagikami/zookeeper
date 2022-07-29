@@ -1467,11 +1467,12 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
              * Main loop
              */
             while (running) {
-                // 记录服务不可用（服务在启动）时间
+                // 记录服务不可用（在选举）时间
                 if (unavailableStartTime == 0) {
                     unavailableStartTime = Time.currentElapsedTime();
                 }
 
+                // 根据状态启动服务器
                 switch (getPeerState()) {
                     // 服务器状态为LOOKING
                 case LOOKING:
@@ -1508,16 +1509,16 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                             }
                         };
                         try {
-                            // 启动服务
+                            // 只读模式启动服务
                             roZkMgr.start();
                             // 关闭配置变更
                             reconfigFlagClear();
                             if (shuttingDownLE) {
                                 shuttingDownLE = false;
-                                // 开始leader选举
+                                // 准备leader选举环境，创建连接管理器
                                 startLeaderElection();
                             }
-                            // 保存当前投票信息
+                            // 进行leader选举并保存选举结果
                             setCurrentVote(makeLEStrategy().lookForLeader());
                         } catch (Exception e) {
                             LOG.warn("Unexpected exception", e);
@@ -1534,10 +1535,10 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                             reconfigFlagClear();
                             if (shuttingDownLE) {
                                 shuttingDownLE = false;
-                                // 开启leader选举
+                                // 准备leader选举环境，创建连接管理器
                                 startLeaderElection();
                             }
-                            // 保存当前投票信息
+                            // 进行leader选举并保存选举结果
                             setCurrentVote(makeLEStrategy().lookForLeader());
                         } catch (Exception e) {
                             LOG.warn("Unexpected exception", e);

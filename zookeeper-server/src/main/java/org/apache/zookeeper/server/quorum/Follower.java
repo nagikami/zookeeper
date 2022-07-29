@@ -70,7 +70,9 @@ public class Follower extends Learner {
      * @throws InterruptedException
      */
     void followLeader() throws InterruptedException {
+        // 记录选举结束时间
         self.end_fle = Time.currentElapsedTime();
+        // 计算选举耗时
         long electionTimeTaken = self.end_fle - self.start_fle;
         self.setElectionTimeTaken(electionTimeTaken);
         ServerMetrics.getMetrics().ELECTION_TIME.add(electionTimeTaken);
@@ -84,8 +86,10 @@ public class Follower extends Learner {
 
         try {
             self.setZabState(QuorumPeer.ZabState.DISCOVERY);
+            // 获取到leader
             QuorumServer leaderServer = findLeader();
             try {
+                // 和leader建立连接
                 connectToLeader(leaderServer.addr, leaderServer.hostname);
                 connectionTime = System.currentTimeMillis();
                 long newEpochZxid = registerWithLeader(Leader.FOLLOWERINFO);
