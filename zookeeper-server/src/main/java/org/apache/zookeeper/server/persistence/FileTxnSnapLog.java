@@ -537,6 +537,7 @@ public class FileTxnSnapLog {
     public boolean truncateLog(long zxid) {
         try {
             // close the existing txnLog and snapLog
+            // 关闭当前的事务日志和snapshot日志流
             close();
 
             // truncate it

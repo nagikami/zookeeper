@@ -92,12 +92,14 @@ public class Follower extends Learner {
                 // 和leader建立连接
                 connectToLeader(leaderServer.addr, leaderServer.hostname);
                 connectionTime = System.currentTimeMillis();
+                // 从leader读取事务id
                 long newEpochZxid = registerWithLeader(Leader.FOLLOWERINFO);
                 if (self.isReconfigStateChange()) {
                     throw new Exception("learned about role change");
                 }
                 //check to see if the leader zxid is lower than ours
                 //this should never happen but is just a safety check
+                // 检查leader的zxid是否小于自己
                 long newEpoch = ZxidUtils.getEpochFromZxid(newEpochZxid);
                 if (newEpoch < self.getAcceptedEpoch()) {
                     LOG.error("Proposed leader epoch "
@@ -107,9 +109,13 @@ public class Follower extends Learner {
                     throw new IOException("Error: Epoch of leader is lower");
                 }
                 long startTime = Time.currentElapsedTime();
+                // 设置leader地址和服务器id
                 self.setLeaderAddressAndId(leaderServer.addr, leaderServer.getId());
+                // 设置zab状态为同步
                 self.setZabState(QuorumPeer.ZabState.SYNCHRONIZATION);
+                // 根据从leader读取的zxid和leader同步数据
                 syncWithLeader(newEpochZxid);
+                // 设置zab状态为广播
                 self.setZabState(QuorumPeer.ZabState.BROADCAST);
                 completedSync = true;
                 long syncTime = Time.currentElapsedTime() - startTime;

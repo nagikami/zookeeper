@@ -601,6 +601,7 @@ public class ZKDatabase {
      * @throws IOException
      */
     public boolean truncateLog(long zxid) throws IOException {
+        // 清空数据库
         clear();
 
         // truncate the log

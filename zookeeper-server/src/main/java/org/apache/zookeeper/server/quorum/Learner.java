@@ -199,7 +199,7 @@ public class Learner {
     void writePacketNow(QuorumPacket pp, boolean flush) throws IOException {
         synchronized (leaderOs) {
             if (pp != null) {
-                // 向缓冲区写入数据包类型
+                // 向消息追踪缓冲区写入数据包类型
                 messageTracker.trackSent(pp.getType());
                 // 写入数据包数据到包装的输出流
                 leaderOs.writeRecord(pp, "packet");
@@ -228,7 +228,9 @@ public class Learner {
      */
     void readPacket(QuorumPacket pp) throws IOException {
         synchronized (leaderIs) {
+            // 从leader的响应读取一个数据包
             leaderIs.readRecord(pp, "packet");
+            // 记录读取的类型和时间
             messageTracker.trackReceived(pp.getType());
         }
         if (LOG.isTraceEnabled()) {
@@ -524,20 +526,28 @@ public class Learner {
         writePacket(qp, true);
         // 从leader读取一个数据包
         readPacket(qp);
+        // 获取从leader读取的朝代
         final long newEpoch = ZxidUtils.getEpochFromZxid(qp.getZxid());
+        // 数据包（消息）类型为LEADERINFO（17，代表follower第一次从leader接收的消息，包含协议版本和leader的朝代）
         if (qp.getType() == Leader.LEADERINFO) {
             // we are connected to a 1.0 server so accept the new epoch and read the next packet
+            // 读取协议版本号
             leaderProtocolVersion = ByteBuffer.wrap(qp.getData()).getInt();
             byte[] epochBytes = new byte[4];
             final ByteBuffer wrappedEpochBytes = ByteBuffer.wrap(epochBytes);
+            // 从leader读取的朝代大于当前保存的来自leader的朝代
             if (newEpoch > self.getAcceptedEpoch()) {
+                // 将自己的朝代信息写入缓冲
                 wrappedEpochBytes.putInt((int) self.getCurrentEpoch());
+                // 保存从leader读取到的朝代
                 self.setAcceptedEpoch(newEpoch);
+                // 从leader读取的朝代等于当前保存的来自leader的朝代
             } else if (newEpoch == self.getAcceptedEpoch()) {
                 // since we have already acked an epoch equal to the leaders, we cannot ack
                 // again, but we still need to send our lastZxid to the leader so that we can
                 // sync with it if it does assume leadership of the epoch.
                 // the -1 indicates that this reply should not count as an ack for the new epoch
+                // 已经响应过一次leader，无需再响应（-1表示不算响应计数），只需要发送zxid
                 wrappedEpochBytes.putInt(-1);
             } else {
                 throw new IOException("Leaders epoch, "
@@ -545,17 +555,24 @@ public class Learner {
                                       + " is less than accepted epoch, "
                                       + self.getAcceptedEpoch());
             }
+            // 构造响应数据包
             QuorumPacket ackNewEpoch = new QuorumPacket(Leader.ACKEPOCH, lastLoggedZxid, epochBytes, null);
+            // 向leader发送数据包
             writePacket(ackNewEpoch, true);
+            // 返回zixd（朝代为新朝代，数据变更次数为0）
             return ZxidUtils.makeZxid(newEpoch, 0);
+            // 其他消息类型
         } else {
+            // 从leader读取的朝代大于当前保存的来自leader的朝代
             if (newEpoch > self.getAcceptedEpoch()) {
+                // 保存从leader读取到的朝代
                 self.setAcceptedEpoch(newEpoch);
             }
             if (qp.getType() != Leader.NEWLEADER) {
                 LOG.error("First packet should have been NEWLEADER");
                 throw new IOException("First packet should have been NEWLEADER");
             }
+            // 返回从leader读取的事务id
             return qp.getZxid();
         }
     }
@@ -568,8 +585,10 @@ public class Learner {
      * @throws InterruptedException
      */
     protected void syncWithLeader(long newLeaderZxid) throws Exception {
+        // 构建响应数据包
         QuorumPacket ack = new QuorumPacket(Leader.ACK, 0, null, null);
         QuorumPacket qp = new QuorumPacket();
+        // 获取从leader读取的朝代
         long newEpoch = ZxidUtils.getEpochFromZxid(newLeaderZxid);
 
         QuorumVerifier newLeaderQV = null;
@@ -578,13 +597,17 @@ public class Learner {
         // For SNAP and TRUNC the snapshot is needed to save that history
         boolean snapshotNeeded = true;
         boolean syncSnapshot = false;
+        // 从leader读取数据包
         readPacket(qp);
         Deque<Long> packetsCommitted = new ArrayDeque<>();
         Deque<PacketInFlight> packetsNotCommitted = new ArrayDeque<>();
         synchronized (zk) {
+            // 同步类型为DIFF
             if (qp.getType() == Leader.DIFF) {
                 LOG.info("Getting a diff from the leader 0x{}", Long.toHexString(qp.getZxid()));
+                // 设置同步类型为DIFF
                 self.setSyncMode(QuorumPeer.SyncMode.DIFF);
+                // 开启选举后强制写入初始化snapshot
                 if (zk.shouldForceWriteInitialSnapshotAfterLeaderElection()) {
                     LOG.info("Forcing a snapshot write as part of upgrading from an older Zookeeper. This should only happen while upgrading.");
                     snapshotNeeded = true;
@@ -592,44 +615,54 @@ public class Learner {
                 } else {
                     snapshotNeeded = false;
                 }
+                // 同步类型为SNAP
             } else if (qp.getType() == Leader.SNAP) {
+                // 设置同步类型为SNAP
                 self.setSyncMode(QuorumPeer.SyncMode.SNAP);
                 LOG.info("Getting a snapshot from leader 0x{}", Long.toHexString(qp.getZxid()));
                 // The leader is going to dump the database
                 // db is clear as part of deserializeSnapshot()
+                // 加载从leader读取的snapshot
                 zk.getZKDatabase().deserializeSnapshot(leaderIs);
                 // ZOOKEEPER-2819: overwrite config node content extracted
                 // from leader snapshot with local config, to avoid potential
                 // inconsistency of config node content during rolling restart.
+                // 使用本地节点配置覆盖snapshot的节点配置
                 if (!self.isReconfigEnabled()) {
                     LOG.debug("Reset config node content from local config after deserialization of snapshot.");
                     zk.getZKDatabase().initConfigInZKDatabase(self.getQuorumVerifier());
                 }
+                // 验证签名
                 String signature = leaderIs.readString("signature");
                 if (!signature.equals("BenWasHere")) {
                     LOG.error("Missing signature. Got {}", signature);
                     throw new IOException("Missing signature");
                 }
+                // 设置自己的zxid为从leader读取的zxid
                 zk.getZKDatabase().setlastProcessedZxid(qp.getZxid());
 
                 // immediately persist the latest snapshot when there is txn log gap
                 syncSnapshot = true;
+                // 同步类型为TRUNC，截断zxid之后的日志
             } else if (qp.getType() == Leader.TRUNC) {
                 //we need to truncate the log to the lastzxid of the leader
                 self.setSyncMode(QuorumPeer.SyncMode.TRUNC);
                 LOG.warn("Truncating log to get in sync with the leader 0x{}", Long.toHexString(qp.getZxid()));
+                // 截断zxid之后的日志
                 boolean truncated = zk.getZKDatabase().truncateLog(qp.getZxid());
                 if (!truncated) {
                     // not able to truncate the log
                     LOG.error("Not able to truncate the log 0x{}", Long.toHexString(qp.getZxid()));
                     ServiceUtils.requestSystemExit(ExitCode.QUORUM_PACKET_ERROR.getValue());
                 }
+                // 设置自己的zxid为从leader读取的zxid
                 zk.getZKDatabase().setlastProcessedZxid(qp.getZxid());
 
             } else {
                 LOG.error("Got unexpected packet from leader: {}, exiting ... ", LearnerHandler.packetToString(qp));
                 ServiceUtils.requestSystemExit(ExitCode.QUORUM_PACKET_ERROR.getValue());
             }
+            // 初始化数据库配置
             zk.getZKDatabase().initConfigInZKDatabase(self.getQuorumVerifier());
             zk.createSessionTracker();
 

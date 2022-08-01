@@ -458,6 +458,7 @@ public class FileTxnLog implements TxnLog, Closeable {
      * @return true if successful false if not
      */
     public boolean truncate(long zxid) throws IOException {
+        // 获取到指向zxid对应日志entry的迭代器
         try (FileTxnIterator itr = new FileTxnIterator(this.logDir, zxid)) {
             PositionInputStream input = itr.inputStream;
             if (input == null) {
@@ -468,8 +469,10 @@ public class FileTxnLog implements TxnLog, Closeable {
             long pos = input.getPosition();
             // now, truncate at the current position
             RandomAccessFile raf = new RandomAccessFile(itr.logFile, "rw");
+            // 从zxid开始截断日志文件
             raf.setLength(pos);
             raf.close();
+            // 如果有后续的日志文件则删除
             while (itr.goToNextLog()) {
                 if (!itr.logFile.delete()) {
                     LOG.warn("Unable to truncate {}", itr.logFile);
@@ -634,7 +637,7 @@ public class FileTxnLog implements TxnLog, Closeable {
 
             // 开启快进
             if (fastForward && hdr != null) {
-                // 读取当前日志文件最后一个日志entry
+                // 读取指定zxid的日志entry
                 while (hdr.getZxid() < zxid) {
                     if (!next()) {
                         break;
