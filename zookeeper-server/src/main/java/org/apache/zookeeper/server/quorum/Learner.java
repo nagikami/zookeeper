@@ -607,7 +607,7 @@ public class Learner {
                 LOG.info("Getting a diff from the leader 0x{}", Long.toHexString(qp.getZxid()));
                 // 设置同步类型为DIFF
                 self.setSyncMode(QuorumPeer.SyncMode.DIFF);
-                // 开启选举后强制写入初始化snapshot
+                // 开启选举后强制创建初始化snapshot
                 if (zk.shouldForceWriteInitialSnapshotAfterLeaderElection()) {
                     LOG.info("Forcing a snapshot write as part of upgrading from an older Zookeeper. This should only happen while upgrading.");
                     snapshotNeeded = true;
@@ -679,10 +679,13 @@ public class Learner {
             // we are now going to start getting transactions to apply followed by an UPTODATE
             outerLoop:
             while (self.isRunning()) {
+                // 从leader读取数据包
                 readPacket(qp);
                 switch (qp.getType()) {
+                    // 消息类型为提议（接收数据）
                 case Leader.PROPOSAL:
                     PacketInFlight pif = new PacketInFlight();
+                    // 读取接收到的日志节点
                     logEntry = SerializeUtils.deserializeTxn(qp.getData());
                     pif.hdr = logEntry.getHeader();
                     pif.rec = logEntry.getTxn();
@@ -693,6 +696,7 @@ public class Learner {
                             Long.toHexString(pif.hdr.getZxid()),
                             Long.toHexString(lastQueued + 1));
                     }
+                    // 记录读取到的zxid
                     lastQueued = pif.hdr.getZxid();
 
                     if (pif.hdr.getType() == OpCode.reconfig) {
@@ -701,13 +705,18 @@ public class Learner {
                         self.setLastSeenQuorumVerifier(qv, true);
                     }
 
+                    // 添加日志节点到队列
                     packetsNotCommitted.add(pif);
                     break;
+                    // 消息类型为提交（处理接收到的数据）
                 case Leader.COMMIT:
                 case Leader.COMMITANDACTIVATE:
+                    // 返回队列里的第一个条消息，但不删除
                     pif = packetsNotCommitted.peekFirst();
+                    // 当前读取到的事务id等于第一条消息（如果是配置则只会缓存一条消息）的事务id，且消息类型为提交并激活
                     if (pif.hdr.getZxid() == qp.getZxid() && qp.getType() == Leader.COMMITANDACTIVATE) {
                         QuorumVerifier qv = self.configFromString(new String(((SetDataTxn) pif.rec).getData(), UTF_8));
+                        // 根据接收到的配置信息修改配置
                         boolean majorChange = self.processReconfig(
                             qv,
                             ByteBuffer.wrap(qp.getData()).getLong(), qp.getZxid(),
@@ -716,29 +725,39 @@ public class Learner {
                             throw new Exception("changes proposed in reconfig");
                         }
                     }
+                    // snapshotNeeded为true
                     if (!writeToTxnLog) {
+                        // 缓存的第一条消息的事务id不等于当前消息的事务id
                         if (pif.hdr.getZxid() != qp.getZxid()) {
                             LOG.warn(
                                 "Committing 0x{}, but next proposal is 0x{}",
                                 Long.toHexString(qp.getZxid()),
                                 Long.toHexString(pif.hdr.getZxid()));
+                            // 缓存的第一条消息的事务id等于当前消息的事务id（commit指定的事务id）
                         } else {
+                            // 处理缓存的消息（日志）
                             zk.processTxn(pif.hdr, pif.rec);
+                            // 删除处理完的消息
                             packetsNotCommitted.remove();
                         }
                     } else {
+                        // snapshotNeeded为false，直接添加消息的事务id到已提交队列
                         packetsCommitted.add(qp.getZxid());
                     }
                     break;
+                    // 消息类型为通知（通知观察者提交提议）
                 case Leader.INFORM:
                 case Leader.INFORMANDACTIVATE:
                     PacketInFlight packet = new PacketInFlight();
 
+                    // 消息类型为通知并激活
                     if (qp.getType() == Leader.INFORMANDACTIVATE) {
                         ByteBuffer buffer = ByteBuffer.wrap(qp.getData());
+                        // 读取leader id
                         long suggestedLeaderId = buffer.getLong();
                         byte[] remainingdata = new byte[buffer.remaining()];
                         buffer.get(remainingdata);
+                        // 读取日志节点
                         logEntry = SerializeUtils.deserializeTxn(remainingdata);
                         packet.hdr = logEntry.getHeader();
                         packet.rec = logEntry.getTxn();
@@ -748,7 +767,9 @@ public class Learner {
                         if (majorChange) {
                             throw new Exception("changes proposed in reconfig");
                         }
+                        // 消息类型为通知
                     } else {
+                        // 读取日志节点
                         logEntry = SerializeUtils.deserializeTxn(qp.getData());
                         packet.rec = logEntry.getTxn();
                         packet.hdr = logEntry.getHeader();
@@ -760,17 +781,23 @@ public class Learner {
                                 Long.toHexString(packet.hdr.getZxid()),
                                 Long.toHexString(lastQueued + 1));
                         }
+                        // 更新记录的事务id
                         lastQueued = packet.hdr.getZxid();
                     }
+                    // snapshotNeeded为true
                     if (!writeToTxnLog) {
                         // Apply to db directly if we haven't taken the snapshot
+                        // 直接加载日志到数据库
                         zk.processTxn(packet.hdr, packet.rec);
                     } else {
+                        // 添加消息到为提交队列
                         packetsNotCommitted.add(packet);
+                        // 添加事务id到已提交队列
                         packetsCommitted.add(qp.getZxid());
                     }
 
                     break;
+                    // 消息类型为UPTODATE，表示follower的数据已经为最新版本
                 case Leader.UPTODATE:
                     LOG.info("Learner received UPTODATE message");
                     if (newLeaderQV != null) {
@@ -779,13 +806,18 @@ public class Learner {
                             throw new Exception("changes proposed in reconfig");
                         }
                     }
+                    // zab版本为1.0
                     if (isPreZAB1_0) {
+                        // 创建快照
                         zk.takeSnapshot(syncSnapshot);
+                        // 设置新朝代
                         self.setCurrentEpoch(newEpoch);
                     }
                     self.setZooKeeperServer(zk);
                     self.adminServer.setZooKeeperServer(zk);
+                    // 跳出到外循环
                     break outerLoop;
+                    // 消息类型为新leader，接收leader的zxid
                 case Leader.NEWLEADER: // Getting NEWLEADER here instead of in discovery
                     // means this is Zab 1.0
                     LOG.info("Learner received NEWLEADER message");

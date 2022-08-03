@@ -866,7 +866,7 @@ public class QuorumCnxManager {
      *      Check if any queues are empty, indicating that messages have been started to be delivered.
      */
     boolean haveDelivered() {
-        // todo 与注释描述不符，此段代码表示任意一个队列为空而不是所有队列都为空
+        // todo 与注释描述不符，此段代码表示有一个队列为空而不是所有队列都为空
         for (BlockingQueue<ByteBuffer> queue : queueSendMap.values()) {
             final int queueSize = queue.size();
             LOG.debug("Queue size: {}", queueSize);
