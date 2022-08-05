@@ -1569,6 +1569,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                     try {
                         LOG.info("FOLLOWING");
                         setFollower(makeFollower(logFactory));
+                        // 启动follower
                         follower.followLeader();
                     } catch (Exception e) {
                         LOG.warn("Unexpected exception", e);
@@ -1582,6 +1583,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                     LOG.info("LEADING");
                     try {
                         setLeader(makeLeader(logFactory));
+                        // 启动leader
                         leader.lead();
                         setLeader(null);
                     } catch (Exception e) {
@@ -2224,7 +2226,9 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
         }
     }
 
+    // 接收到的最新的leader朝代
     private long acceptedEpoch = -1;
+    // 当前数据状态对应的leader朝代
     private long currentEpoch = -1;
 
     public static final String CURRENT_EPOCH_FILENAME = "currentEpoch";

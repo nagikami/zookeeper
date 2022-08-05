@@ -1049,13 +1049,15 @@ public class FastLeaderElection implements Election {
                  * Sends more notifications if haven't received enough.
                  * Otherwise processes new notification.
                  */
-                // 未拉取到新通知，说明还未接收到所有节点的通知至少一次，需要继续发送消息或者检查连接
+                // 未拉取到新通知，说明还未有半数以上节点达成共识，需要继续发送消息或者检查连接
                 if (n == null) {
-                    // 消息已经发送（至少有一个推送队列为空，bug？）
+                    // 消息已经发送（至少有一个推送队列为空）
                     if (manager.haveDelivered()) {
+                        // 检查每一个连接并再次广播消息
                         sendNotifications();
                     } else {
-                        // 尝试与所有节点保持连接（有则检查，无则创建）
+                        // 所有连接不可用（所有推送队列都有消息）时尝试与所有节点保持连接
+                        // （有则检查，无则创建），此分支保证在所有连接不可用时，不会不断发送消息
                         manager.connectAll();
                     }
 
@@ -1083,7 +1085,7 @@ public class FastLeaderElection implements Election {
                             break;
                         }
                         // If notification > current, replace and send messages out
-                        // 通知的选举朝代大于自己的选举朝代，代表自己落后于集群（可能是断掉之后重连的）
+                        // 通知的选举朝代大于自己的选举朝代（可能自己因为分区离开过quorum，或者自己是新加入的节点）
                         if (n.electionEpoch > logicalclock.get()) {
                             // 更新自己的选举朝代为通知的选举朝代
                             logicalclock.set(n.electionEpoch);
@@ -1100,7 +1102,7 @@ public class FastLeaderElection implements Election {
                             // 广播新提议（投票结果）
                             sendNotifications();
                         } else if (n.electionEpoch < logicalclock.get()) {
-                            // 通知的朝代小于自己的朝代，代表自己节点状态有问题（可能发生分区，自己进行了多轮无效选举），跳出循环
+                            // 通知的朝代小于自己的朝代，可能是其他节点未接收到自己的广播时发送的消息，忽略消息
                                 LOG.debug(
                                     "Notification election epoch is smaller than logicalclock. n.electionEpoch = 0x{}, logicalclock=0x{}",
                                     Long.toHexString(n.electionEpoch),
@@ -1127,11 +1129,11 @@ public class FastLeaderElection implements Election {
                         // 添加投票到当前选举朝代投票集合
                         recvset.put(n.sid, new Vote(n.leader, n.zxid, n.electionEpoch, n.peerEpoch));
 
-                        // 如果之前接收到的投票和自己当前的投票相同（有服务器的意图和自己达成一致），
+                        // 创建voteSet，如果之前接收到的投票和自己当前的投票相同（有服务器的意图和自己达成一致），
                         // 则将投票的服务器id添加到响应集合
                         voteSet = getVoteTracker(recvset, new Vote(proposedLeader, proposedZxid, logicalclock.get(), proposedEpoch));
 
-                        // 所有quorum节点至少有一个投票和自己的某个提议相同并通知到自己
+                        // 所有quorum节点至少有一半投票和自己的当前提议相同并通知到自己
                         if (voteSet.hasAllQuorums()) {
 
                             // Verify if there is any change in the proposed leader
@@ -1184,7 +1186,7 @@ public class FastLeaderElection implements Election {
                             // 如果接收到的投票和之前接收到的投票相同（有服务器的意图达成一致），
                             // 则将投票的服务器id添加到响应集合
                             voteSet = getVoteTracker(recvset, new Vote(n.version, n.leader, n.zxid, n.electionEpoch, n.peerEpoch, n.state));
-                            // 所有quorum节点至少有一个投票和自己的某个提议相同并通知到自己并且选举出的leader有效
+                            // quorum节点至少一半投票和自己的当前提议相同，并通知到自己并且选举出的leader有效
                             if (voteSet.hasAllQuorums() && checkLeader(recvset, n.leader, n.electionEpoch)) {
                                 // 更新节点状态，如果自己是leader，保存此次选举的投票
                                 setPeerState(n.leader, voteSet);
@@ -1204,16 +1206,16 @@ public class FastLeaderElection implements Election {
                          */
                         // 通知的选举朝代和自己的不同，记录投票信息
                         outofelection.put(n.sid, new Vote(n.version, n.leader, n.zxid, n.electionEpoch, n.peerEpoch, n.state));
-                        // 如果接收到的投票和之前接收到的投票相同（有服务器的意图达成一致），
+                        // 如果接收到的投票和之前接收到的投票相同（当前quorum有部分节点的意图达成一致），
                         // 则将投票的服务器id添加到响应集合
                         voteSet = getVoteTracker(outofelection, new Vote(n.version, n.leader, n.zxid, n.electionEpoch, n.peerEpoch, n.state));
 
-                        // 所有节点投票相同并且leader有效，说明集群有效，自己加入集群
+                        // 当前quorum有一半以上节点的投票和接收到的投票达成一致，并且leader有效，说明集群有效，自己加入集群
                         if (voteSet.hasAllQuorums() && checkLeader(outofelection, n.leader, n.electionEpoch)) {
                             synchronized (this) {
                                 // 更新自己的朝代为选举结束的朝代
                                 logicalclock.set(n.electionEpoch);
-                                // 更细节点状态
+                                // 更改节点状态
                                 setPeerState(n.leader, voteSet);
                             }
                             Vote endVote = new Vote(n.leader, n.zxid, n.electionEpoch, n.peerEpoch);

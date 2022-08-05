@@ -456,6 +456,7 @@ public class LearnerHandler extends ZooKeeperThread {
     /**
      * This thread will receive packets from the peer and process them and
      * also listen to new connections from new peers.
+     * 接收并处理来自peer的消息
      */
     @Override
     public void run() {
@@ -463,20 +464,26 @@ public class LearnerHandler extends ZooKeeperThread {
             learnerMaster.addLearnerHandler(this);
             tickOfNextAckDeadline = learnerMaster.getTickOfInitialAckDeadline();
 
+            // 封装来自learner的输入流
             ia = BinaryInputArchive.getArchive(bufferedInput);
+            // 封装自己的输出流
             bufferedOutput = new BufferedOutputStream(sock.getOutputStream());
             oa = BinaryOutputArchive.getArchive(bufferedOutput);
 
             QuorumPacket qp = new QuorumPacket();
+            // 从learner读取消息
             ia.readRecord(qp, "packet");
 
+            // 记录消息接收记录到缓存
             messageTracker.trackReceived(qp.getType());
+            // 只接收FOLLOWERINFO、OBSERVERINFO类型的消息
             if (qp.getType() != Leader.FOLLOWERINFO && qp.getType() != Leader.OBSERVERINFO) {
                 LOG.error("First packet {} is not FOLLOWERINFO or OBSERVERINFO!", qp.toString());
 
                 return;
             }
 
+            // leader接收来自observer的数据同步请求，但是接收到的消息不是来自于observer
             if (learnerMaster instanceof ObserverMaster && qp.getType() != Leader.OBSERVERINFO) {
                 throw new IOException("Non observer attempting to connect to ObserverMaster. type = " + qp.getType());
             }
@@ -484,21 +491,27 @@ public class LearnerHandler extends ZooKeeperThread {
             if (learnerInfoData != null) {
                 ByteBuffer bbsid = ByteBuffer.wrap(learnerInfoData);
                 if (learnerInfoData.length >= 8) {
+                    // 读取learner的服务器id
                     this.sid = bbsid.getLong();
                 }
                 if (learnerInfoData.length >= 12) {
+                    // 读取消息类型（协议版本）
                     this.version = bbsid.getInt(); // protocolVersion
                 }
                 if (learnerInfoData.length >= 20) {
+                    // 读取配置版本
                     long configVersion = bbsid.getLong();
+                    // follower版本高于leader，报错
                     if (configVersion > learnerMaster.getQuorumVerifierVersion()) {
                         throw new IOException("Follower is ahead of the leader (has a later activated configuration)");
                     }
                 }
             } else {
+                // 获取sid，减少follower数量
                 this.sid = learnerMaster.getAndDecrementFollowerCounter();
             }
 
+            // 获取follower的信息
             String followerInfo = learnerMaster.getPeerInfo(this.sid);
             if (followerInfo.isEmpty()) {
                 LOG.info(
@@ -509,42 +522,55 @@ public class LearnerHandler extends ZooKeeperThread {
                 LOG.info("Follower sid: {} : info : {}", this.sid, followerInfo);
             }
 
+            // 消息来自observer
             if (qp.getType() == Leader.OBSERVERINFO) {
+                // 更改类型为OBSERVER
                 learnerType = LearnerType.OBSERVER;
             }
 
             learnerMaster.registerLearnerHandlerBean(this, sock);
 
+            // 读取follower发送的旧leader朝代
             long lastAcceptedEpoch = ZxidUtils.getEpochFromZxid(qp.getZxid());
 
             long peerLastZxid;
             StateSummary ss = null;
             long zxid = qp.getZxid();
+            // 获取新leader的朝代
             long newEpoch = learnerMaster.getEpochToPropose(this.getSid(), lastAcceptedEpoch);
+            // 获取新leader朝代的事务id
             long newLeaderZxid = ZxidUtils.makeZxid(newEpoch, 0);
 
+            // 消息版本小于0x10000
             if (this.getVersion() < 0x10000) {
                 // we are going to have to extrapolate the epoch information
                 long epoch = ZxidUtils.getEpochFromZxid(zxid);
                 ss = new StateSummary(epoch, zxid);
-                // fake the message
+                // fake the message 等待半数以上节点响应leader的朝代
                 learnerMaster.waitForEpochAck(this.getSid(), ss);
             } else {
+                // 消息版本为0x10000
                 byte[] ver = new byte[4];
                 ByteBuffer.wrap(ver).putInt(0x10000);
+                // 构造新leader发送到follower的第一条消息（包含协议版本和新事务id）
                 QuorumPacket newEpochPacket = new QuorumPacket(Leader.LEADERINFO, newLeaderZxid, ver, null);
                 oa.writeRecord(newEpochPacket, "packet");
                 messageTracker.trackSent(Leader.LEADERINFO);
+                // 发送消息（包含新leader朝代）给follower
                 bufferedOutput.flush();
+                // 读取follower对leader新朝代的响应
                 QuorumPacket ackEpochPacket = new QuorumPacket();
                 ia.readRecord(ackEpochPacket, "packet");
                 messageTracker.trackReceived(ackEpochPacket.getType());
+                // follower未响应
                 if (ackEpochPacket.getType() != Leader.ACKEPOCH) {
                     LOG.error("{} is not ACKEPOCH", ackEpochPacket.toString());
                     return;
                 }
                 ByteBuffer bbepoch = ByteBuffer.wrap(ackEpochPacket.getData());
+                // 保存follower状态（follower朝代和事务id）
                 ss = new StateSummary(bbepoch.getInt(), ackEpochPacket.getZxid());
+                // 等待半数以上节点响应leader的朝代
                 learnerMaster.waitForEpochAck(this.getSid(), ss);
             }
             peerLastZxid = ss.getLastZxid();

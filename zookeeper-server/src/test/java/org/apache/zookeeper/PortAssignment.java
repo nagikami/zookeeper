@@ -51,14 +51,14 @@ public final class PortAssignment {
      * concurrent test processes and the ID of this test process.  Each
      * concurrent test process uses an isolated range, so it's not possible for
      * multiple test processes to collide on the same port.  Within the port
-     * range, ports are assigned in monotonic increasing order, wrapping around
+     * range, ports are assigned in monotonic（单调） increasing order, wrapping around
      * to the beginning of the range if needed.  As an extra precaution, the
      * method attempts to bind to the port and immediately close it before
      * returning it to the caller.  If the port cannot be bound, then it tries
      * the next one in the range.  This provides some resiliency in case the port
      * is otherwise occupied, such as a developer running other servers on the
      * machine running the tests.
-     *
+     * 为每一个并发测试线程提供指定范围的端口号，在测试端口号可绑定后返回
      * @return port
      */
     public static synchronized int unique() {
@@ -67,11 +67,13 @@ public final class PortAssignment {
             portRange = setupPortRange(
                 System.getProperty("test.junit.threads"),
                 threadId != null ? "threadid=" + threadId : System.getProperty("sun.java.command"));
+            // 获取区间左边界
             nextPort = portRange.getMinimum();
         }
         int candidatePort = nextPort;
         for (; ; ) {
             ++candidatePort;
+            // 区间遍历完后，置为左边界值
             if (candidatePort > portRange.getMaximum()) {
                 candidatePort = portRange.getMinimum();
             }
@@ -81,6 +83,7 @@ public final class PortAssignment {
                     portRange));
             }
             try {
+                // 尝试绑定端口，成功则返回
                 ServerSocket s = new ServerSocket(candidatePort);
                 s.close();
                 nextPort = candidatePort;
@@ -110,6 +113,7 @@ public final class PortAssignment {
      * this information is unavailable or unparseable, then the default behavior
      * is for this process to use the entire available port range.  This is
      * expected when running tests outside of Ant.
+     * ant在调用JUnit时会传入test.junit.threads系统变量和threadid=N参数
      *
      * @param strProcessCount string representation of integer process count,
      *         typically taken from system property test.junit.threads
@@ -147,14 +151,18 @@ public final class PortAssignment {
             // Use these values to calculate the valid range for port assignments
             // within this test process.  We lose a few possible ports to the
             // remainder, but that's acceptable.
+            // 计算端口可选范围（总区间 / 区间数）
             int portRangeSize = (GLOBAL_MAX_PORT - GLOBAL_BASE_PORT) / processCount;
+            // 获取子区间左边界
             int minPort = GLOBAL_BASE_PORT + ((threadId - 1) * portRangeSize);
+            // 获取子区间右边界
             int maxPort = minPort + portRangeSize - 1;
             newPortRange = new PortRange(minPort, maxPort);
             LOG.info("Test process {}/{} using ports from {}.", threadId, processCount, newPortRange);
         } else {
             // If running outside the context of Ant or Ant is using a single
             // test process, then use all valid ports.
+            // 不通过ant，或者单独运行一个测试线程，返回总区间
             newPortRange = new PortRange(GLOBAL_BASE_PORT, GLOBAL_MAX_PORT);
             LOG.info("Single test process using ports from {}.", newPortRange);
         }

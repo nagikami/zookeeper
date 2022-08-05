@@ -92,7 +92,7 @@ public class Follower extends Learner {
                 // 和leader建立连接
                 connectToLeader(leaderServer.addr, leaderServer.hostname);
                 connectionTime = System.currentTimeMillis();
-                // 从leader读取事务id
+                // 和leader通信，获取新的事务id
                 long newEpochZxid = registerWithLeader(Leader.FOLLOWERINFO);
                 if (self.isReconfigStateChange()) {
                     throw new Exception("learned about role change");
@@ -119,7 +119,9 @@ public class Follower extends Learner {
                 self.setZabState(QuorumPeer.ZabState.BROADCAST);
                 completedSync = true;
                 long syncTime = Time.currentElapsedTime() - startTime;
+                // 上报数据同步耗时
                 ServerMetrics.getMetrics().FOLLOWER_SYNC_TIME.add(syncTime);
+                // 如果存在observer和自己同步数据，创建observerMaster
                 if (self.getObserverMasterPort() > 0) {
                     LOG.info("Starting ObserverMaster");
 
@@ -129,6 +131,7 @@ public class Follower extends Learner {
                     om = null;
                 }
                 // create a reusable packet to reduce gc impact
+                // 处理从leader接收的数据包
                 QuorumPacket qp = new QuorumPacket();
                 while (this.isRunning()) {
                     readPacket(qp);

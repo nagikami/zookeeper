@@ -449,6 +449,7 @@ public class Leader extends LearnerMaster {
         @Override
         public void run() {
             if (!stop.get() && !serverSockets.isEmpty()) {
+                // 创建serverSocket处理连接池（多地址时，需要多个serverSocket）
                 ExecutorService executor = Executors.newFixedThreadPool(serverSockets.size());
                 CountDownLatch latch = new CountDownLatch(serverSockets.size());
 
@@ -492,6 +493,7 @@ public class Leader extends LearnerMaster {
                 try {
                     Thread.currentThread().setName("LearnerCnxAcceptorHandler-" + serverSocket.getLocalSocketAddress());
 
+                    // 处理来自follower的连接
                     while (!stop.get()) {
                         acceptConnections();
                     }
@@ -514,7 +516,9 @@ public class Leader extends LearnerMaster {
 
                     // start with the initLimit, once the ack is processed
                     // in LearnerHandler switch to the syncLimit
+                    // 设置read()超时时间
                     socket.setSoTimeout(self.tickTime * self.initLimit);
+                    // 设置TCP_NODELAY，关闭Nagle算法，立即发送小于MSS(maximum segment size)的数据包，而不是缓存
                     socket.setTcpNoDelay(nodelay);
 
                     BufferedInputStream is = new BufferedInputStream(socket.getInputStream());
@@ -572,7 +576,7 @@ public class Leader extends LearnerMaster {
 
     /**
      * This method is main function that is called to lead
-     *
+     * leader主方法
      * @throws IOException
      * @throws InterruptedException
      */
@@ -580,6 +584,7 @@ public class Leader extends LearnerMaster {
         self.end_fle = Time.currentElapsedTime();
         long electionTimeTaken = self.end_fle - self.start_fle;
         self.setElectionTimeTaken(electionTimeTaken);
+        // 记录选剧本耗时指标
         ServerMetrics.getMetrics().ELECTION_TIME.add(electionTimeTaken);
         LOG.info("LEADING - LEADER ELECTION TOOK - {} {}", electionTimeTaken, QuorumPeer.FLE_TIME_UNIT);
         self.start_fle = 0;
@@ -588,6 +593,7 @@ public class Leader extends LearnerMaster {
         zk.registerJMX(new LeaderBean(this, zk), self.jmxLocalPeerBean);
 
         try {
+            // 设置zab状态为DISCOVERY（发现）
             self.setZabState(QuorumPeer.ZabState.DISCOVERY);
             self.tick.set(0);
             zk.loadData();
@@ -596,6 +602,7 @@ public class Leader extends LearnerMaster {
 
             // Start thread that waits for connection requests from
             // new followers.
+            // 处理和follower的连接
             cnxAcceptor = new LearnerCnxAcceptor();
             cnxAcceptor.start();
 
@@ -1393,12 +1400,15 @@ public class Leader extends LearnerMaster {
             if (!waitingForNewEpoch) {
                 return epoch;
             }
+            // 从follower接收到的上一任leader朝代大于等于新leader的朝代，新leader朝代在旧朝代上加1
             if (lastAcceptedEpoch >= epoch) {
                 epoch = lastAcceptedEpoch + 1;
             }
+            // 添加follower服务器id到集合
             if (isParticipant(sid)) {
                 connectingFollowers.add(sid);
             }
+            // 等待半数以上follower响应leader
             QuorumVerifier verifier = self.getQuorumVerifier();
             if (connectingFollowers.contains(self.getId()) && verifier.containsQuorum(connectingFollowers)) {
                 waitingForNewEpoch = false;
@@ -1448,18 +1458,22 @@ public class Leader extends LearnerMaster {
                                           + " (last zxid)");
                 }
                 if (ss.getLastZxid() != -1 && isParticipant(id)) {
+                    // 添加服务器id到朝代响应集合
                     electingFollowers.add(id);
                 }
             }
+            // 等待选举结束（半数以上quorum节点响应leader的朝代）
             QuorumVerifier verifier = self.getQuorumVerifier();
             if (electingFollowers.contains(self.getId()) && verifier.containsQuorum(electingFollowers)) {
                 electionFinished = true;
+                // 唤醒所有等待线程
                 electingFollowers.notifyAll();
             } else {
                 long start = Time.currentElapsedTime();
                 long cur = start;
                 long end = start + self.getInitLimit() * self.getTickTime();
                 while (!electionFinished && cur < end) {
+                    // 挂起等待选举结束
                     electingFollowers.wait(end - cur);
                     cur = Time.currentElapsedTime();
                 }

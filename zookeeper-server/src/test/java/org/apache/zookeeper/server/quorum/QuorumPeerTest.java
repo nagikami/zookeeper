@@ -47,7 +47,9 @@ public class QuorumPeerTest {
     @Test
     public void testQuorumPeerListendOnSpecifiedClientIP() throws IOException {
         long myId = 1;
+        // 获取数据路径
         File dataDir = ClientBase.createTmpDir();
+        // 获取端口号
         int clientPort = PortAssignment.unique();
         Map<Long, QuorumServer> peersView = new HashMap<Long, QuorumServer>();
         InetAddress clientIP = InetAddress.getLoopbackAddress();

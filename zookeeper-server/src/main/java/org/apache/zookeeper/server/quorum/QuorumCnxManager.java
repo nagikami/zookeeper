@@ -767,6 +767,7 @@ public class QuorumCnxManager {
              */
             BlockingQueue<ByteBuffer> bq = queueSendMap.computeIfAbsent(sid, serverId -> new CircularBlockingQueue<>(SEND_CAPACITY));
             addToSendQueue(bq, b);
+            // 检查连接
             connectOne(sid);
         }
     }
@@ -1357,7 +1358,7 @@ public class QuorumCnxManager {
 
                     ByteBuffer b = null;
                     try {
-                        // 获取接收方对应的消息发送队列
+                        // 获取消息发送队列
                         BlockingQueue<ByteBuffer> bq = queueSendMap.get(sid);
                         if (bq != null) {
                             // 从消息发送队列拉取消息

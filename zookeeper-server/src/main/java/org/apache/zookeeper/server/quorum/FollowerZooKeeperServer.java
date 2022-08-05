@@ -82,7 +82,9 @@ public class FollowerZooKeeperServer extends LearnerZooKeeperServer {
     public void logRequest(TxnHeader hdr, Record txn, TxnDigest digest) {
         Request request = new Request(hdr.getClientId(), hdr.getCxid(), hdr.getType(), hdr, txn, hdr.getZxid());
         request.setTxnDigest(digest);
+        // 如果zxid低32位（当前朝代变更次数）不为0
         if ((request.zxid & 0xffffffffL) != 0) {
+            // 将请求加入到等待队列
             pendingTxns.add(request);
         }
         syncProcessor.processRequest(request);
