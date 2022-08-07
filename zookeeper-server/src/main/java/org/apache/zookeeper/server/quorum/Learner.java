@@ -801,7 +801,7 @@ public class Learner {
                     }
 
                     break;
-                    // 消息类型为UPTODATE，表示follower的数据已经为最新版本
+                    // 消息类型为UPTODATE，表示半数以上follower的数据已经为最新版本，且leader服务初始化完成
                 case Leader.UPTODATE:
                     LOG.info("Learner received UPTODATE message");
                     if (newLeaderQV != null) {
@@ -862,16 +862,16 @@ public class Learner {
                         packetsNotCommitted.clear();
                     }
 
-                    // 向leader发送对提议的响应消息，类型为ACK
+                    // 向leader发送对NEWLEADER的响应消息，类型为ACK
                     writePacket(new QuorumPacket(Leader.ACK, newLeaderZxid, null, null), true);
                     break;
                 }
             }
         }
         // 数据同步完成
-        // 设置zxid
+        // 设置zxid为新leader朝代
         ack.setZxid(ZxidUtils.makeZxid(newEpoch, 0));
-        // 向leader发送响应
+        // 向leader发送响应，类型为ACK
         writePacket(ack, true);
         // 启动服务
         zk.startServing();

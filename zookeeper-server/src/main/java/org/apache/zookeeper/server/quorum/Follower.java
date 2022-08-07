@@ -133,6 +133,7 @@ public class Follower extends Learner {
                 // create a reusable packet to reduce gc impact
                 // 处理从leader接收的数据包
                 QuorumPacket qp = new QuorumPacket();
+                // 集群通信主循环
                 while (this.isRunning()) {
                     readPacket(qp);
                     processPacket(qp);

@@ -674,6 +674,7 @@ public class LearnerHandler extends ZooKeeperThread {
 
             /*
              * Wait until learnerMaster starts up
+             * 等待leader服务初始化完成
              */
             learnerMaster.waitForStartup();
 
@@ -682,8 +683,10 @@ public class LearnerHandler extends ZooKeeperThread {
             // using the data
             //
             LOG.debug("Sending UPTODATE message to {}", sid);
+            // leader服务初始化完成，发送UPTODATE消息给follower
             queuedPackets.add(new QuorumPacket(Leader.UPTODATE, -1, null, null));
 
+            // 集群通信主循环
             while (true) {
                 qp = new QuorumPacket();
                 ia.readRecord(qp, "packet");
