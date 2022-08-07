@@ -495,6 +495,7 @@ public class Learner {
     /**
      * Once connected to the leader or learner master, perform the handshake
      * protocol to establish a following / observing connection.
+     * 和新leader完成三次握手（FOLLOWERINFO，LEADERINFO，ACKEPOCH），将自己的事务id和旧朝代变更次数发送给新leader，并获取新leader朝代
      * @param pktType
      * @return the zxid the Leader sends for synchronization purposes.
      * @throws IOException
@@ -535,9 +536,9 @@ public class Learner {
             leaderProtocolVersion = ByteBuffer.wrap(qp.getData()).getInt();
             byte[] epochBytes = new byte[4];
             final ByteBuffer wrappedEpochBytes = ByteBuffer.wrap(epochBytes);
-            // 从新leader的朝代大于当前保存的旧leader的朝代
+            // 新leader的朝代大于当前保存的旧leader的朝代
             if (newEpoch > self.getAcceptedEpoch()) {
-                // 将自己的当前朝代写入缓冲
+                // 将自己的当前（旧）朝代的变更次数写入缓冲
                 wrappedEpochBytes.putInt((int) self.getCurrentEpoch());
                 // 保存新leader朝代
                 self.setAcceptedEpoch(newEpoch);
@@ -557,7 +558,7 @@ public class Learner {
             }
             // 构造响应数据包
             QuorumPacket ackNewEpoch = new QuorumPacket(Leader.ACKEPOCH, lastLoggedZxid, epochBytes, null);
-            // 向leader发送数据包
+            // 向leader发送消息，类型为ACKEPOCH
             writePacket(ackNewEpoch, true);
             // 返回zixd（朝代为新朝代，数据变更次数为0）
             return ZxidUtils.makeZxid(newEpoch, 0);
@@ -585,7 +586,7 @@ public class Learner {
      * @throws InterruptedException
      */
     protected void syncWithLeader(long newLeaderZxid) throws Exception {
-        // 构建响应数据包
+        // 构建响应消息，类型为ACK
         QuorumPacket ack = new QuorumPacket(Leader.ACK, 0, null, null);
         QuorumPacket qp = new QuorumPacket();
         // 获取从leader读取的朝代
@@ -600,7 +601,7 @@ public class Learner {
         boolean snapshotNeeded = true;
         // 是否立刻从page cache刷新到硬盘
         boolean syncSnapshot = false;
-        // 从leader读取数据包
+        // 从leader数据同步消息
         readPacket(qp);
         Deque<Long> packetsCommitted = new ArrayDeque<>();
         Deque<PacketInFlight> packetsNotCommitted = new ArrayDeque<>();
@@ -820,7 +821,7 @@ public class Learner {
                     self.adminServer.setZooKeeperServer(zk);
                     // 跳出到外循环
                     break outerLoop;
-                    // 消息类型为新leader，接收leader的zxid
+                    // 消息类型为NEWLEADER，接收leader的zxid
                 case Leader.NEWLEADER: // Getting NEWLEADER here instead of in discovery
                     // means this is Zab 1.0
                     LOG.info("Learner received NEWLEADER message");
@@ -854,14 +855,14 @@ public class Learner {
                     zk.startupWithoutServing();
                     if (zk instanceof FollowerZooKeeperServer) {
                         FollowerZooKeeperServer fzk = (FollowerZooKeeperServer) zk;
-                        // 处理未提交日志
+                        // 处理leader发送的未提交日志
                         for (PacketInFlight p : packetsNotCommitted) {
                             fzk.logRequest(p.hdr, p.rec, p.digest);
                         }
                         packetsNotCommitted.clear();
                     }
 
-                    // 向leader发送对提议的响应
+                    // 向leader发送对提议的响应消息，类型为ACK
                     writePacket(new QuorumPacket(Leader.ACK, newLeaderZxid, null, null), true);
                     break;
                 }

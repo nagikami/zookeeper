@@ -1288,7 +1288,7 @@ public class Leader extends LearnerMaster {
     /**
      * lets the leader know that a follower is capable of following and is done
      * syncing
-     *
+     * leader缓存的新提议发送给follower
      * @param handler handler of the follower
      * @return last proposed zxid
      */

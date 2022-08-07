@@ -281,7 +281,7 @@ public class FastLeaderElection implements Election {
 
                         try {
                             if (!backCompatibility28) {
-                                // 读取消息发送服务器朝代
+                                // 读取消息发送服务器数据朝代
                                 rpeerepoch = response.buffer.getLong();
                                 if (!backCompatibility40) {
                                     /*
@@ -365,10 +365,9 @@ public class FastLeaderElection implements Election {
                             // 获取当前投票信息
                             Vote current = self.getCurrentVote();
                             QuorumVerifier qv = self.getQuorumVerifier();
-                            // 构造通知消息
+                            // 构造通知消息，将自己投票信息发送给对方
                             ToSend notmsg = new ToSend(
                                 ToSend.mType.notification,
-                                // leader为自己
                                 current.getId(),
                                 current.getZxid(),
                                 logicalclock.get(),
@@ -402,7 +401,7 @@ public class FastLeaderElection implements Election {
                                 continue;
                             }
 
-                            // 为通知赋值
+                            // 将接收到通知赋值给自己的通知
                             n.leader = rleader;
                             n.zxid = rzxid;
                             n.electionEpoch = relectionEpoch;
@@ -412,7 +411,7 @@ public class FastLeaderElection implements Election {
                             n.version = version;
                             n.qv = rqv;
                             /*
-                             * Print notification info
+                             * Print notification info 打印接收到的通知
                              */
                             LOG.info(
                                 "Notification: my state:{}; n.sid:{}, n.state:{}, n.leader:{}, n.round:0x{}, "
@@ -433,7 +432,7 @@ public class FastLeaderElection implements Election {
                              */
 
                             if (self.getPeerState() == QuorumPeer.ServerState.LOOKING) {
-                                // 添加通知到接收队列
+                                // 添加通知到选举接收队列，由lookForLeader消费
                                 recvqueue.offer(n);
 
                                 /*
@@ -463,7 +462,7 @@ public class FastLeaderElection implements Election {
                                  * If this server is not looking, but the one that sent the ack
                                  * is looking, then send back what it believes to be the leader.
                                  * 如果当前服务器状态不是LOOKING，但发送方是LOOKING，
-                                 * 将自己记录的leader发送给它
+                                 * 将自己记录的leader即投票集合发送给它
                                  */
                                 Vote current = self.getCurrentVote();
                                 if (ackstate == QuorumPeer.ServerState.LOOKING) {
@@ -488,7 +487,7 @@ public class FastLeaderElection implements Election {
                                     QuorumVerifier qv = self.getQuorumVerifier();
                                     ToSend notmsg = new ToSend(
                                         ToSend.mType.notification,
-                                        // 自己投票信息，记录的leader
+                                        // 自己投票信息记录的leader
                                         current.getId(),
                                         current.getZxid(),
                                         current.getElectionEpoch(),
@@ -601,6 +600,7 @@ public class FastLeaderElection implements Election {
 
     QuorumPeer self;
     Messenger messenger;
+    // 自己的选举朝代
     AtomicLong logicalclock = new AtomicLong(); /* Election instance */
     long proposedLeader;
     long proposedZxid;
@@ -1041,7 +1041,7 @@ public class FastLeaderElection implements Election {
                 /*
                  * Remove next notification from queue, times out after 2 times
                  * the termination time
-                 * 从选举消息接收队列获取通知
+                 * 从选举消息接收队列获取通知（此时接收到的通知是由WorkerReceiver筛选过的）
                  */
                 Notification n = recvqueue.poll(notTimeout, TimeUnit.MILLISECONDS);
 
