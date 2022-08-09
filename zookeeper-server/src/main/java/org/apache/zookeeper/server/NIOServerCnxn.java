@@ -99,6 +99,7 @@ public class NIOServerCnxn extends ServerCnxn {
         sock.socket().setTcpNoDelay(true);
         /* set socket linger to false, so that socket close does not block */
         sock.socket().setSoLinger(false, -1);
+        // 设置keepAlive
         sock.socket().setKeepAlive(clientTcpKeepAlive);
         InetAddress addr = ((InetSocketAddress) sock.socket().getRemoteSocketAddress()).getAddress();
         addAuthInfo(new Id("ip", addr.getHostAddress()));
@@ -181,14 +182,19 @@ public class NIOServerCnxn extends ServerCnxn {
         }
 
         if (incomingBuffer.remaining() == 0) { // have we read length bytes?
+            // 读取请求数据
             incomingBuffer.flip();
+            // 记录收到的请求长度（length(4) + data.length()）
             packetReceived(4 + incomingBuffer.remaining());
             if (!initialized) {
                 readConnectRequest();
             } else {
+                // 处理请求
                 readRequest();
             }
+            // 清空请求长度缓冲区
             lenBuffer.clear();
+            // 等待下一个请求
             incomingBuffer = lenBuffer;
         }
     }
@@ -327,22 +333,31 @@ public class NIOServerCnxn extends ServerCnxn {
 
                 return;
             }
+            // 连接可读
             if (k.isReadable()) {
+                // 读取数据到缓冲区
                 int rc = sock.read(incomingBuffer);
                 if (rc < 0) {
                     handleFailedRead();
                 }
+                // 如果缓冲区已满
                 if (incomingBuffer.remaining() == 0) {
                     boolean isPayload;
+                    // 接收到4字节数据，代表新请求的开始
                     if (incomingBuffer == lenBuffer) { // start of next request
+                        // 切换为读
                         incomingBuffer.flip();
+                        // 读取4字节数据（请求长度，或者4位命令）
                         isPayload = readLength(k);
+                        // 清空缓冲区
                         incomingBuffer.clear();
                     } else {
                         // continuation
                         isPayload = true;
                     }
+                    // 不是4位命令
                     if (isPayload) { // not the case for 4letterword
+                        // 读取数据
                         readPayload();
                     } else {
                         // four letter words take care
@@ -405,6 +420,7 @@ public class NIOServerCnxn extends ServerCnxn {
     //
     // Don't support wait disable receive in NIO, ignore the parameter
     public void disableRecv(boolean waitDisableRecv) {
+        // 更新限流状态成功
         if (throttled.compareAndSet(false, true)) {
             requestInterestOpsUpdate();
         }
@@ -540,6 +556,7 @@ public class NIOServerCnxn extends ServerCnxn {
      */
     private boolean readLength(SelectionKey k) throws IOException {
         // Read the length, now get the buffer
+        // 读取4字节（请求长度或者4位命令）
         int len = lenBuffer.getInt();
         if (!initialized && checkFourLetterWord(sk, len)) {
             return false;
@@ -555,6 +572,7 @@ public class NIOServerCnxn extends ServerCnxn {
         }
         // checkRequestSize will throw IOException if request is rejected
         zkServer.checkRequestSizeWhenReceivingMessage(len);
+        // 分配数据读取缓冲区
         incomingBuffer = ByteBuffer.allocate(len);
         return true;
     }

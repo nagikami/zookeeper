@@ -674,7 +674,7 @@ public class LearnerHandler extends ZooKeeperThread {
 
             /*
              * Wait until learnerMaster starts up
-             * 等待leader服务初始化完成
+             * 等待leader服务初始化（其他线程的在执行的lead()）完成
              */
             learnerMaster.waitForStartup();
 

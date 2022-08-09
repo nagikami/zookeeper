@@ -147,7 +147,9 @@ public abstract class ServerCnxn implements Stats, Watcher {
         if (h.getXid() <= 0) {
             return;
         }
+        // 需要限流
         if (zkServer.shouldThrottle(outstandingCount.incrementAndGet())) {
+            // 停止接收请求
             disableRecv(false);
         }
     }

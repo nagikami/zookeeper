@@ -138,21 +138,25 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
         try {
             while (true) {
                 ServerMetrics.getMetrics().PREP_PROCESSOR_QUEUE_SIZE.add(submittedRequests.size());
+                // 从已提交请求队列获取请求
                 Request request = submittedRequests.take();
                 ServerMetrics.getMetrics().PREP_PROCESSOR_QUEUE_TIME
                     .add(Time.currentElapsedTime() - request.prepQueueStartTime);
                 long traceMask = ZooTrace.CLIENT_REQUEST_TRACE_MASK;
+                // 请求类型为ping
                 if (request.type == OpCode.ping) {
                     traceMask = ZooTrace.CLIENT_PING_TRACE_MASK;
                 }
                 if (LOG.isTraceEnabled()) {
                     ZooTrace.logRequest(LOG, traceMask, 'P', request, "");
                 }
+                // 请求为终止请求，跳出循环
                 if (Request.requestOfDeath == request) {
                     break;
                 }
 
                 request.prepStartTime = Time.currentElapsedTime();
+                // 处理请求
                 pRequest(request);
             }
         } catch (Exception e) {
@@ -310,7 +314,7 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
     /**
      * This method will be called inside the ProcessRequestThread, which is a
      * singleton, so there will be a single thread calling this code.
-     *
+     * 创建日志节点
      * @param type
      * @param zxid
      * @param request
@@ -769,20 +773,25 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
         request.setHdr(null);
         request.setTxn(null);
 
+        // 请求未限流
         if (!request.isThrottled()) {
+            // 处理请求
           pRequestHelper(request);
         }
 
+        // 获取请求对应的zxid
         request.zxid = zks.getZxid();
         long timeFinishedPrepare = Time.currentElapsedTime();
         ServerMetrics.getMetrics().PREP_PROCESS_TIME.add(timeFinishedPrepare - request.prepStartTime);
+        // 交给下一个处理器处理
         nextProcessor.processRequest(request);
         ServerMetrics.getMetrics().PROPOSAL_PROCESS_TIME.add(Time.currentElapsedTime() - timeFinishedPrepare);
     }
 
     /**
      * This method is a helper to pRequest method
-     *
+     * 根据传入的请求的类型创建具体的请求和对应的事务日志节点
+     * 多请求时则保存涉及的变更集合，方便回滚
      * @param request
      */
     private void pRequestHelper(Request request) throws RequestProcessorException {
@@ -821,6 +830,7 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
                 pRequest2Txn(request.type, zks.getNextZxid(), request, checkRequest, true);
                 break;
             case OpCode.multi:
+                // 多请求，保存涉及的变更操作集合便于回滚
                 MultiOperationRecord multiRequest = new MultiOperationRecord();
                 try {
                     ByteBufferInputStream.byteBuffer2Record(request.request, multiRequest);

@@ -1108,14 +1108,14 @@ public class FastLeaderElection implements Election {
                                     Long.toHexString(n.electionEpoch),
                                     Long.toHexString(logicalclock.get()));
                             break;
-                            // 通知的朝代和自己相同，并且投票中的leader赢得这次投票
+                            // 通知的选举朝代和自己相同，并且投票中的leader赢得这次投票
                         } else if (totalOrderPredicate(n.leader, n.zxid, n.peerEpoch, proposedLeader, proposedZxid, proposedEpoch)) {
                             // 更新自己的提议为投票的值
                             updateProposal(n.leader, n.zxid, n.peerEpoch);
                             // 广播新提议（投票结果）
                             sendNotifications();
                         }
-                        // 此时，通知的朝代和自己相同（落后时将朝代设为通知的，超前时会在上面跳出），
+                        // 此时，自己的选举朝代和通知的相同（落后时将选举朝代设为通知的，超前时会在上面跳出），
                         // 且自己的提议状态为最新（输了投票，更新为收到的leader，自己赢得投票则无需更新）
 
                         LOG.debug(

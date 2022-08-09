@@ -584,7 +584,7 @@ public class Leader extends LearnerMaster {
         self.end_fle = Time.currentElapsedTime();
         long electionTimeTaken = self.end_fle - self.start_fle;
         self.setElectionTimeTaken(electionTimeTaken);
-        // 记录选剧本耗时指标
+        // 记录选举耗时指标
         ServerMetrics.getMetrics().ELECTION_TIME.add(electionTimeTaken);
         LOG.info("LEADING - LEADER ELECTION TOOK - {} {}", electionTimeTaken, QuorumPeer.FLE_TIME_UNIT);
         self.start_fle = 0;
@@ -602,20 +602,25 @@ public class Leader extends LearnerMaster {
 
             // Start thread that waits for connection requests from
             // new followers.
-            // 处理和follower的连接
+            // 处理和follower的连接，完成数据同步，监听peer消息
             cnxAcceptor = new LearnerCnxAcceptor();
             cnxAcceptor.start();
 
+            // 获取新的朝代
             long epoch = getEpochToPropose(self.getId(), self.getAcceptedEpoch());
 
+            // 设置新zxid
             zk.setZxid(ZxidUtils.makeZxid(epoch, 0));
 
             synchronized (this) {
+                // 更新最新提议的zxid
                 lastProposed = zk.getZxid();
             }
 
+            // 构建newLeader提议
             newLeaderProposal.packet = new QuorumPacket(NEWLEADER, zk.getZxid(), null, null);
 
+            // 变更次数不为0
             if ((newLeaderProposal.packet.getZxid() & 0xffffffffL) != 0) {
                 LOG.info("NEWLEADER proposal has Zxid of {}", Long.toHexString(newLeaderProposal.packet.getZxid()));
             }
@@ -652,6 +657,7 @@ public class Leader extends LearnerMaster {
                 }
             }
 
+            // newLeader提议添加最新的quorum配置
             newLeaderProposal.addQuorumVerifier(self.getQuorumVerifier());
             if (self.getLastSeenQuorumVerifier().getVersion() > self.getQuorumVerifier().getVersion()) {
                 newLeaderProposal.addQuorumVerifier(self.getLastSeenQuorumVerifier());
@@ -661,12 +667,17 @@ public class Leader extends LearnerMaster {
             // us. We do this by waiting for the NEWLEADER packet to get
             // acknowledged
 
+            // 等待半数以上（包含leader）节点响应LEADERINFO消息
+            // 将响应的sid加入electingFollowers中
             waitForEpochAck(self.getId(), leaderStateSummary);
             self.setCurrentEpoch(epoch);
             self.setLeaderAddressAndId(self.getQuorumAddress(), self.getId());
+            // 设置zab状态为同步
             self.setZabState(QuorumPeer.ZabState.SYNCHRONIZATION);
 
             try {
+                // 等待半数以上节点（包含leader）响应NEWLEADER消息（表示数据同步完成）
+                // 添加响应的sid到newLeaderProposal
                 waitForNewLeaderAck(self.getId(), zk.getZxid());
             } catch (InterruptedException e) {
                 shutdown("Waiting for a quorum of followers, only synced with sids: [ "
@@ -853,6 +864,7 @@ public class Leader extends LearnerMaster {
 
         //check if I'm in the new configuration with the same quorum address -
         // if so, I'll remain the leader
+        // 在最新的quorum配置中包含自己的id并且地址没有改变，返回自己的id
         if (newQVAcksetPair.getQuorumVerifier().getVotingMembers().containsKey(self.getId())
             && newQVAcksetPair.getQuorumVerifier().getVotingMembers().get(self.getId()).addr.equals(self.getQuorumAddress())) {
             return self.getId();
@@ -1502,14 +1514,17 @@ public class Leader extends LearnerMaster {
 
     /**
      * Start up Leader ZooKeeper server and initialize zxid to the new epoch
+     * 启动leader服务
      */
     private synchronized void startZkServer() {
         // Update lastCommitted and Db's zxid to a value representing the new epoch
+        // 获取最后提交的zxid
         lastCommitted = zk.getZxid();
         LOG.info("Have quorum of supporters, sids: [{}]; starting up and setting last processed zxid: 0x{}",
                  newLeaderProposal.ackSetsToString(),
                  Long.toHexString(zk.getZxid()));
 
+        // 开启重配置
         if (self.isReconfigEnabled()) {
             /*
              * ZOOKEEPER-1324. the leader sends the new config it must complete
@@ -1532,6 +1547,7 @@ public class Leader extends LearnerMaster {
         }
 
         leaderStartTime = Time.currentElapsedTime();
+        // 启动zk服务
         zk.startup();
         /*
          * Update the election vote here to ensure that all members of the
@@ -1540,8 +1556,10 @@ public class Leader extends LearnerMaster {
          *
          * @see https://issues.apache.org/jira/browse/ZOOKEEPER-1732
          */
+        // 更新投票信息，保证当前quorum节点的投票相同
         self.updateElectionVote(getEpoch());
 
+        // 设置最后处理zxid
         zk.getZKDatabase().setlastProcessedZxid(zk.getZxid());
     }
 

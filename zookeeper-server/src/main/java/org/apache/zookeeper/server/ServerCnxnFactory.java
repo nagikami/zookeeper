@@ -225,7 +225,7 @@ public abstract class ServerCnxnFactory {
 
     /**
      * Initialize the server SASL if specified.
-     *
+     * 初始化SASL认证
      * If the user has specified a "ZooKeeperServer.LOGIN_CONTEXT_NAME_KEY"
      * or a jaas.conf using "java.security.auth.login.config"
      * the authentication is required and an exception is raised.

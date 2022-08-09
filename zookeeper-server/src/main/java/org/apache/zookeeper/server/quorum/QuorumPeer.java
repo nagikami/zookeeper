@@ -2538,6 +2538,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
      *
      * See https://issues.apache.org/jira/browse/ZOOKEEPER-1732
      */
+    // 更新投票信息，保证当前quorum节点的投票相同
     protected void updateElectionVote(long newEpoch) {
         Vote currentVote = getCurrentVote();
         if (currentVote != null) {

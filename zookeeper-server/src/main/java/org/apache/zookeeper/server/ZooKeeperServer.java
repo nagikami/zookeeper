@@ -707,9 +707,12 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
         if (sessionTracker == null) {
             createSessionTracker();
         }
+        // 启动session跟踪器
         startSessionTracker();
+        // 启动请求处理器链
         setupRequestProcessors();
 
+        // 启动请求限流器
         startRequestThrottler();
 
         registerJMX();
@@ -739,6 +742,7 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
 
     }
 
+    // PrepRequestProcessor -> SyncRequestProcessor -> FinalRequestProcessor
     protected void setupRequestProcessors() {
         RequestProcessor finalProcessor = new FinalRequestProcessor(this);
         RequestProcessor syncProcessor = new SyncRequestProcessor(this, finalProcessor);
@@ -1122,7 +1126,7 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
                     // Since all requests are passed to the request
                     // processor it should wait for setting up the request
                     // processor chain. The state will be updated to RUNNING
-                    // after the setup.
+                    // after the setup. 等待processor chain启动成功
                     while (state == State.INITIAL) {
                         wait(1000);
                     }
@@ -1619,14 +1623,17 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
         //
         // It's fine if the IOException thrown before we decrease the count
         // in cnxn, since it will close the cnxn anyway.
+        // 增加外部请求计数，检查是需要限流，是则关闭请求接收
         cnxn.incrOutstandingAndCheckThrottle(h);
 
         // Through the magic of byte buffers, txn will not be
         // pointing
         // to the start of the txn
         incomingBuffer = incomingBuffer.slice();
+        // 请求头类型为auth，处理认证
         if (h.getType() == OpCode.auth) {
             LOG.info("got auth packet {}", cnxn.getRemoteSocketAddress());
+            // 读取认证消息
             AuthPacket authPacket = new AuthPacket();
             ByteBufferInputStream.byteBuffer2Record(incomingBuffer, authPacket);
             String scheme = authPacket.getScheme();
@@ -1644,10 +1651,12 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
                     authReturn = KeeperException.Code.AUTHFAILED;
                 }
             }
+            // 认证成功
             if (authReturn == KeeperException.Code.OK) {
                 LOG.info("Session 0x{}: auth success for scheme {} and address {}",
                         Long.toHexString(cnxn.getSessionId()), scheme,
                         cnxn.getRemoteSocketAddress());
+                // 发送响应消息
                 ReplyHeader rh = new ReplyHeader(h.getXid(), 0, KeeperException.Code.OK.intValue());
                 cnxn.sendResponse(rh, null, null);
             } else {
@@ -1659,6 +1668,7 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
                 } else {
                     LOG.warn("Authentication failed for scheme: {}", scheme);
                 }
+                // 认证失败，发送响应，关闭连接
                 // send a response...
                 ReplyHeader rh = new ReplyHeader(h.getXid(), 0, KeeperException.Code.AUTHFAILED.intValue());
                 cnxn.sendResponse(rh, null, null);
@@ -1667,6 +1677,7 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
                 cnxn.disableRecv();
             }
             return;
+            // 认证类型为sasl，处理sasl认证
         } else if (h.getType() == OpCode.sasl) {
             processSasl(incomingBuffer, cnxn, h);
         } else {
@@ -1675,6 +1686,7 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
                 // Already sent response to user about failure and closed the session, lets return
                 return;
             } else {
+                // 无需认证或认证成功，处理请求
                 Request si = new Request(cnxn, cnxn.getSessionId(), h.getXid(), h.getType(), incomingBuffer, cnxn.getAuthInfo());
                 int length = incomingBuffer.limit();
                 if (isLargeRequest(length)) {
@@ -1683,6 +1695,7 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
                     si.setLargeRequestSize(length);
                 }
                 si.setOwner(ServerCnxn.me);
+                // 提交请求
                 submitRequest(si);
             }
         }

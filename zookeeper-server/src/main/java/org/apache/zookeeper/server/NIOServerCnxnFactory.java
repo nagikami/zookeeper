@@ -213,6 +213,7 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
                         continue;
                     }
                     if (key.isAcceptable()) {
+                        // 处理accept
                         if (!doAccept()) {
                             // If unable to pull a new connection off the accept
                             // queue, pause accepting to give us time to free
@@ -360,13 +361,17 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
          * dispatches ready I/O work requests, then registers all pending
          * newly accepted connections and updates any interest ops on the
          * queue.
+         * 客户端连接处理主循环，分发请求
          */
         public void run() {
             try {
                 while (!stopped) {
                     try {
+                        // 获取分配到当前线程的连接的事件
                         select();
+                        // 处理已accept但未注册到当前线程selector的连接
                         processAcceptedConnections();
+                        // 更新当前连接感兴趣的操作
                         processInterestOpsUpdateRequests();
                     } catch (RuntimeException e) {
                         LOG.warn("Ignoring unexpected runtime exception", e);
@@ -402,6 +407,7 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
             try {
                 selector.select();
 
+                // 获取读写事件
                 Set<SelectionKey> selected = selector.selectedKeys();
                 ArrayList<SelectionKey> selectedList = new ArrayList<SelectionKey>(selected);
                 Collections.shuffle(selectedList);
@@ -414,6 +420,7 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
                         cleanupSelectionKey(key);
                         continue;
                     }
+                    // 处理读写事件
                     if (key.isReadable() || key.isWritable()) {
                         handleIO(key);
                     } else {
@@ -432,13 +439,17 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
          */
         private void handleIO(SelectionKey key) {
             IOWorkRequest workRequest = new IOWorkRequest(this, key);
+            // 获取和selectionKey绑定的连接对象
             NIOServerCnxn cnxn = (NIOServerCnxn) key.attachment();
 
             // Stop selecting this key while processing on its
-            // connection
+            // connection 在处理连接请求时，停止select
             cnxn.disableSelectable();
+            // 清空key关注的操作（停止select）
             key.interestOps(0);
+            // 更新连接过期时间
             touchCnxn(cnxn);
+            // 处理请求，完成后开启select
             workerPool.schedule(workRequest);
         }
 
@@ -451,7 +462,9 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
             while (!stopped && (accepted = acceptedQueue.poll()) != null) {
                 SelectionKey key = null;
                 try {
+                    // 注册读事件
                     key = accepted.register(selector, SelectionKey.OP_READ);
+                    // 为连接绑定连接管理对象
                     NIOServerCnxn cnxn = createConnection(accepted, key, this);
                     key.attach(cnxn);
                     addCnxn(cnxn);
@@ -505,6 +518,7 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
             }
 
             if (key.isReadable() || key.isWritable()) {
+                // 处理请求
                 cnxn.doIO(key);
 
                 // Check if we shutdown or doIO() closed this connection
@@ -516,10 +530,12 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
                     selectorThread.cleanupSelectionKey(key);
                     return;
                 }
+                // 更新连接过期时间
                 touchCnxn(cnxn);
             }
 
             // Mark this connection as once again ready for selection
+            // 连接允许select
             cnxn.enableSelectable();
             // Push an update request on the queue to resume selecting
             // on the current set of interest ops, which may have changed
@@ -628,7 +644,8 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
         // We also use the sessionlessCnxnTimeout as expiring interval for
         // cnxnExpiryQueue. These don't need to be the same, but the expiring
         // interval passed into the ExpiryQueue() constructor below should be
-        // less than or equal to the timeout.
+        // less than or equal to the timeout. 连接过期队列过期时间不能大于连接过期时间
+        // 初始化连接过期队列
         cnxnExpiryQueue = new ExpiryQueue<NIOServerCnxn>(sessionlessCnxnTimeout);
         expirerThread = new ConnectionExpirerThread();
 
@@ -654,8 +671,10 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
             selectorThreads.add(new SelectorThread(i));
         }
 
+        // 配置socket背压队列
         listenBacklog = backlog;
         this.ss = ServerSocketChannel.open();
+        // 允许绑定连接已经关闭，但是处于timeout状态的端口
         ss.socket().setReuseAddress(true);
         LOG.info("binding to port {}", addr);
         if (listenBacklog == -1) {
@@ -819,6 +838,7 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
         set.add(cnxn);
 
         cnxns.add(cnxn);
+        // 更新连接过期队列中的连接过期时间
         touchCnxn(cnxn);
     }
 
