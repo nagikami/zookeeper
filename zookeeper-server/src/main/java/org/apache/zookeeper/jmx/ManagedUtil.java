@@ -39,6 +39,7 @@ public class ManagedUtil {
             LOG.info("Log4j 1.2 jmx support is disabled by property.");
         } else {
             try {
+                // 加载log4j的jmx类，成功则代表支持jmx
                 Class.forName("org.apache.log4j.jmx.HierarchyDynamicMBean");
                 enabled = true;
                 LOG.info("Log4j 1.2 jmx support found and enabled.");

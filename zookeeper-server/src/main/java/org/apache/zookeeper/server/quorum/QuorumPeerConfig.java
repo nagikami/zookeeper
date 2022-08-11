@@ -402,7 +402,7 @@ public class QuorumPeerConfig {
             } else if (key.equals("multiAddress.reachabilityCheckEnabled")) {
                 multiAddressReachabilityCheckEnabled = parseBoolean(key, value);
             } else {
-                // 多余属性设置为环境变量
+                // 其他属性设置为系统变量
                 System.setProperty("zookeeper." + key, value);
             }
         }

@@ -37,6 +37,7 @@ import org.slf4j.LoggerFactory;
  * zookeeper MBeans with the platform MBean server. It builds a hierarchy of MBeans
  * where each MBean represented by a filesystem-like path. Eventually, this hierarchy
  * will be stored in the zookeeper data tree instance as a virtual data tree.
+ * 以文件系统树形式保存MBean
  */
 public class MBeanRegistry {
 

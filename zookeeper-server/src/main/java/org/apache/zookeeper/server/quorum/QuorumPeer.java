@@ -305,7 +305,9 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
 
         private void initializeWithAddressString(String addressStr, Function<InetSocketAddress, InetAddress> getInetAddress) throws ConfigException {
             LearnerType newType = null;
+            // IPv6用;隔开
             String[] serverClientParts = addressStr.split(";");
+            // 多ip用|分隔
             String[] serverAddresses = serverClientParts[0].split("\\|");
 
             if (serverClientParts.length == 2) {
@@ -348,7 +350,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                 InetSocketAddress tempElectionAddress;
                 try {
                     tempAddress = new InetSocketAddress(serverHostName, Integer.parseInt(serverParts[1]));
-                    // 添加节点通信地址
+                    // 添加节点数据通信地址
                     addr.addAddress(tempAddress);
                 } catch (NumberFormatException e) {
                     throw new ConfigException("Address unresolved: " + serverHostName + ":" + serverParts[1]);
@@ -414,7 +416,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
 
         private void setMyAddrs() {
             this.myAddrs = new ArrayList<>();
-            // 添加节点通信地址
+            // 添加节点数据通信地址
             this.myAddrs.addAll(this.addr.getAllAddresses());
             // 添加客户端通信监听地址
             this.myAddrs.add(this.clientAddr);

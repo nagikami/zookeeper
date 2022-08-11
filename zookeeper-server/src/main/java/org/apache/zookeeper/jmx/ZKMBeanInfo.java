@@ -25,12 +25,14 @@ package org.apache.zookeeper.jmx;
 public interface ZKMBeanInfo {
 
     /**
-     * @return a string identifying the MBean
+     * @return a string identifying the MBean、
+     * 返回MBean标识
      */
     String getName();
     /**
      * If isHidden returns true, the MBean won't be registered with MBean server,
      * and thus won't be available for management tools. Used for grouping MBeans.
+     * 是否隐藏MBean
      * @return true if the MBean is hidden.
      */
     boolean isHidden();
