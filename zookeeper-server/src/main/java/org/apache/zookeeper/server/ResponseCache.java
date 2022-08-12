@@ -83,6 +83,7 @@ public class ResponseCache {
             this.cacheSize = cacheSize;
         }
 
+        // hash表满时，删除最老的节点（head）
         protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {
             return size() >= cacheSize;
         }

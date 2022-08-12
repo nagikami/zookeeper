@@ -48,6 +48,7 @@ public class MBeanRegistry {
 
     private final Object LOCK = new Object();
 
+    // 保存MBean和对应的prefix
     private Map<ZKMBeanInfo, String> mapBean2Path = new ConcurrentHashMap<ZKMBeanInfo, String>();
 
     private MBeanServer mBeanServer;
@@ -94,13 +95,16 @@ public class MBeanRegistry {
         assert bean != null;
         String path = null;
         if (parent != null) {
+            // 获取parent的prefix
             path = mapBean2Path.get(parent);
             assert path != null;
         }
+        // 获取parent绝对路径
         path = makeFullPath(path, parent);
         if (bean.isHidden()) {
             return;
         }
+        // 拼接path和bean.name
         ObjectName oname = makeObjectName(path, bean);
         try {
             synchronized (LOCK) {
@@ -159,6 +163,7 @@ public class MBeanRegistry {
 
     /**
      * Generate a filesystem-like path.
+     * 返回prefix和相对路径拼接的绝对路径
      * @param prefix path prefix
      * @param name path elements
      * @return absolute path
@@ -200,7 +205,7 @@ public class MBeanRegistry {
     }
     /**
      * Builds an MBean path and creates an ObjectName instance using the path.
-     * @param path MBean path
+     * @param path MBean path(prefix)
      * @param bean the MBean instance
      * @return ObjectName to be registered with the platform MBean server
      */
@@ -210,8 +215,10 @@ public class MBeanRegistry {
         }
         StringBuilder beanName = new StringBuilder(DOMAIN + ":");
         int counter = 0;
+        // 对prefix分词
         counter = tokenize(beanName, path, counter);
         tokenize(beanName, bean.getName(), counter);
+        // 删除多余的,
         beanName.deleteCharAt(beanName.length() - 1);
         try {
             return new ObjectName(beanName.toString());

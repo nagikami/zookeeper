@@ -178,7 +178,7 @@ public class QuorumPeerMain {
 
             // 创建ServerCnxnFactory，用于管理ServerCnxn（代表客户端和服务端的一个连接）
             if (config.getClientPortAddress() != null) {
-                // 默认使用NIO
+                // 默认使用NIO，抽象工厂模式
                 cnxnFactory = ServerCnxnFactory.createFactory();
                 // 配置客户端监听server
                 cnxnFactory.configure(config.getClientPortAddress(), config.getMaxClientCnxns(), config.getClientPortListenBacklog(), false);
