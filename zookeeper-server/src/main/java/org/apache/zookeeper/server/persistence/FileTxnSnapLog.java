@@ -307,7 +307,7 @@ public class FileTxnSnapLog {
             if (trustEmptyDB) {
                 /* TODO: (br33d) we should either put a ConcurrentHashMap on restore()
                  *       or use Map on save() */
-                // 保存快照（空database）
+                // 保存快照（空database），作为遍历哨兵
                 save(dt, (ConcurrentHashMap<Long, Integer>) sessions, false);
 
                 /* return a zxid of 0, since we know the database is empty */
