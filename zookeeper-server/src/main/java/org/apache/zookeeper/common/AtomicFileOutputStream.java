@@ -77,8 +77,9 @@ public class AtomicFileOutputStream extends FilterOutputStream {
     public void close() throws IOException {
         boolean triedToClose = false, success = false;
         try {
-            // 刷新到硬盘
+            // 强制刷新应用缓存到stream
             flush();
+            // 强制刷新系统缓存到硬盘
             ((FileOutputStream) out).getFD().sync();
 
             triedToClose = true;

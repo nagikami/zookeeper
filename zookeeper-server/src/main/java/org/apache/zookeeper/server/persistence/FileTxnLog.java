@@ -663,7 +663,7 @@ public class FileTxnLog implements TxnLog, Closeable {
          */
         void init() throws IOException {
             storedFiles = new ArrayList<>();
-            // 按照降序获取所有的日志文件
+            // // 按时间升序返回snapshot之后的所有事务日志
             List<File> files = Util.sortDataDir(
                     // 按照升序返回所有的日志文件
                 FileTxnLog.getLogFiles(logDir.listFiles(), 0),

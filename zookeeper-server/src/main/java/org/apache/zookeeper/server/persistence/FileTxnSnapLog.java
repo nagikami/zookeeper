@@ -355,7 +355,7 @@ public class FileTxnSnapLog {
                     //empty logs
                     return dt.lastProcessedZxid;
                 }
-                // 重放的事务节点id必须递增，否则记录error日志
+                // 重放的事务节点id必须递增，且数据库非空，否则记录error日志
                 if (hdr.getZxid() < highestZxid && highestZxid != 0) {
                     LOG.error("{}(highestZxid) > {}(next log) for type {}", highestZxid, hdr.getZxid(), hdr.getType());
                 } else {

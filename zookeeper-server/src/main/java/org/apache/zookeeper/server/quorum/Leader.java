@@ -1354,6 +1354,7 @@ public class Leader extends LearnerMaster {
 
     private volatile boolean quitWaitForEpoch = false;
     private volatile long timeStartWaitForEpoch = -1;
+    // 记录当前leader的投票集合
     private volatile SyncedLearnerTracker voteSet;
 
     public static final String MAX_TIME_TO_WAIT_FOR_EPOCH = "zookeeper.leader.maxTimeToWaitForEpoch";

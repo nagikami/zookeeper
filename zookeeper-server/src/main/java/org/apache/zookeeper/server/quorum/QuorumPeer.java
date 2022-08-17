@@ -1431,7 +1431,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
 
     @Override
     public void run() {
-        // 更新线程名，plain为选举监听地址
+        // 更新线程名，plain为客户端监听地址
         updateThreadName();
 
         LOG.debug("Starting quorum peer");
