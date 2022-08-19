@@ -42,6 +42,7 @@ import org.slf4j.LoggerFactory;
  * than its target time, it implies that the JVM or host machine has
  * paused processing, which may cause other problems. If such a pause is
  * detected, the thread logs a message.
+ * 启动一个线程，循序睡眠，如果线程睡眠时间比指定的时间长则说明发生了STW
  */
 public class JvmPauseMonitor {
 
@@ -181,6 +182,7 @@ public class JvmPauseMonitor {
 
         @Override
         public void run() {
+            // 获取GC的MBeans
             Map<String, GcTimes> gcTimesBeforeSleep = getGcTimes();
             LOG.info("Starting JVM Pause Monitor with infoThresholdMs:{} warnThresholdMs:{} and sleepTimeMs:{}", infoThresholdMs, warnThresholdMs, sleepTimeMs);
             while (shouldRun) {
