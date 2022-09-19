@@ -359,7 +359,7 @@ public class FastLeaderElection implements Election {
                         /*
                          * If it is from a non-voting server (such as an observer or
                          * a non-voting follower), respond right away.
-                         * 如果消息来非quorum节点（例如观察者），快速响应，通知对方自己为leader
+                         * 如果消息来非quorum节点（例如观察者），快速响应，通知对方自己认为的leader
                          */
                         if (!validVoter(response.sid)) {
                             // 获取当前投票信息
@@ -401,7 +401,7 @@ public class FastLeaderElection implements Election {
                                 continue;
                             }
 
-                            // 将接收到通知赋值给自己的通知
+                            // 保存接收到的通知
                             n.leader = rleader;
                             n.zxid = rzxid;
                             n.electionEpoch = relectionEpoch;
@@ -1102,7 +1102,7 @@ public class FastLeaderElection implements Election {
                             // 广播新提议（投票结果）
                             sendNotifications();
                         } else if (n.electionEpoch < logicalclock.get()) {
-                            // 通知的朝代小于自己的朝代，可能是其他节点未接收到自己的广播时发送的消息，忽略消息
+                            // 通知的选举朝代小于自己的选举朝代，可能是其他节点未接收到自己的广播时发送的消息，忽略消息
                                 LOG.debug(
                                     "Notification election epoch is smaller than logicalclock. n.electionEpoch = 0x{}, logicalclock=0x{}",
                                     Long.toHexString(n.electionEpoch),
@@ -1206,8 +1206,8 @@ public class FastLeaderElection implements Election {
                          */
                         // 通知的选举朝代和自己的不同，记录投票信息
                         outofelection.put(n.sid, new Vote(n.version, n.leader, n.zxid, n.electionEpoch, n.peerEpoch, n.state));
-                        // 如果接收到的投票和之前接收到的投票相同（当前quorum有部分节点的意图达成一致），
-                        // 则将投票的服务器id添加到响应集合
+                        // 如果接收到的投票和之前接收到的历史投票相同（当前quorum有部分节点的意图达成一致），
+                        // 则将历史投票的服务器id添加到当前投票的响应集合
                         voteSet = getVoteTracker(outofelection, new Vote(n.version, n.leader, n.zxid, n.electionEpoch, n.peerEpoch, n.state));
 
                         // 当前quorum有一半以上节点的投票和接收到的投票达成一致，并且leader有效，说明集群有效，自己加入集群
